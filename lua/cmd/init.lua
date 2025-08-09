@@ -268,6 +268,10 @@ local U = {
 ---completion handling, and command lifecycle management.
 local C = {}
 
+---@private
+---Flag to prevent setup from running multiple times
+local did_setup = false
+
 ------------------------------------------------------------------
 -- Constants & Setup
 ------------------------------------------------------------------
@@ -1836,6 +1840,11 @@ end
 ---   })
 ---@usage ]]
 function Cmd.setup(user_config)
+  if did_setup then
+    return
+  end
+  did_setup = true
+
   Cmd.config = vim.tbl_deep_extend("force", Cmd.defaults, user_config or {})
 
   validate_adapter(Cmd.config.async_notifier.adapter)
