@@ -321,7 +321,8 @@ Cmd.Config.AsyncNotifier.PreExec      *cmd.api.Cmd.Config.AsyncNotifier.PreExec*
         {current_spinner_char?}  (string)                                        Currently displayed spinner character
 
 
-Cmd.Config.AsyncNotifier.PostExec    *cmd.api.Cmd.Config.AsyncNotifier.PostExec*
+                                     *cmd.api.Cmd.Config.AsyncNotifier.PostExec*
+Cmd.Config.AsyncNotifier.PostExec
 
     Fields: ~
         {command_id}                 (integer)                                       Unique command identifier
