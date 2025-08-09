@@ -12,17 +12,22 @@ cmd.nvim transforms how you interact with command-line tools inside Neovim. Whet
 > [!NOTE]
 > Note that the notifier in the demo is my custom notifier, not a built in one.
 
+> [!WARNING]
+> This plugin might not cover all edges and use cases, but it covers all my needs at this moment. Feel free to send in
+> PRs instead of asking for fix or issue reports.
+
 ## ✨ Features
 
 - **🔄 Async Execution** - Run commands without blocking Neovim
-- **📊 Progress Notifications** - Beautiful spinners and progress indicators
-- **🔍 Shell Completion** - Native shell completion for any command
+- **📊 Progress Notifications** - Beautiful spinners and progress indicators (snacks.nvim, mini.notify, fidget.nvim or
+  custom)
+- **🔍 Shell Completion** - Native shell completion for any command (your shell must support it, only for `fish` now,
+  need help please!)
 - **📜 Command History** - Track and rerun previous commands
 - **🖥️ Dual Output Modes** - Buffer output or terminal execution
 - **⚙️ Environment Control** - Per-executable environment variables
 - **⏰ Timeout Management** - Configurable timeouts with graceful cancellation
 - **🎯 Smart Terminal Detection** - Auto-detect commands that need terminal mode
-- **🔌 Plugin Integration** - Works with snacks.nvim, mini.notify, fidget.nvim
 
 ## 📦 Installation
 
@@ -62,7 +67,6 @@ cmd.nvim transforms how you interact with command-line tools inside Neovim. Whet
 ```vim
 :!git status                 " Blocks UI, basic output, hard to copy text
 :terminal git status         " New terminal buffer, but not really needed if running non interactive commands
-:make git status             " Wrong tool for the job
 ```
 
 **Running `git status` with cmd.nvim:**
@@ -129,6 +133,7 @@ require("cmd").setup({
   },
 
   -- Auto-create user commands for executables
+  -- and you can use them without :Cmd
   create_usercmd = {
     git = "Git",       -- Creates :Git command
     npm = "Npm",       -- Creates :Npm command
@@ -355,25 +360,31 @@ async_notifier = {
 
 ```vim
 " Git workflows
-:Cmd git status
+:Cmd git status -s
 :Cmd git add .
-:Cmd! git commit    " Interactive commit in terminal
+:Cmd! git add -p
+:Cmd! git commit
 :Cmd git push
+
+" Github workflows
+:Cmd gh pr create
+:Cmd gh pr merge
+:Cmd! gh pr checks --watch
 
 " Development
 :Cmd npm test
-:Cmd! npm run dev   " Interactive development server
+:Cmd! npm run dev
 :Cmd docker ps
 :Cmd! docker exec -it mycontainer bash
+:Cmd just --list
 
 " System administration
 :Cmd ls -la
-:Cmd find . -name "*.lua"
-:Cmd! htop         " Interactive system monitor
+:Cmd! htop
 
 " File operations with current buffer
-:Cmd ls %:h        " List current file's directory
-:Cmd cat %         " Show current file content
+:Cmd ls %:h
+:Cmd cat %
 ```
 
 </details>
@@ -381,6 +392,9 @@ async_notifier = {
 ### 🎯 Smart Features
 
 #### Auto-completion
+
+> [!WARNING]
+> Only `fish` shell is supported, as that's my shell, please help me out to make it work for `bash` and `zsh` ~
 
 Enable shell completion to get native command-line completion inside Neovim:
 
@@ -485,10 +499,10 @@ Create user commands automatically:
 
 ```lua
 create_usercmd = {
-  git = "Git",
-  docker = "Docker",
-  kubectl = "K",
-  npm = "Npm",
+  git = "Git", -- :Git
+  docker = "Docker", -- :Docker
+  kubectl = "K",  -- :K
+  npm = "Npm", -- :Npm
 }
 ```
 
@@ -514,7 +528,7 @@ This creates commands like `:Git status`, `:Docker ps`, `:K get pods`, etc.
 
 ### No notifications progress
 
-- Ensure that you have enabled `opts.async_notifier.adapter` in your config, if not it will just do i single `vim.notify`
+- Ensure that you have enabled `opts.async_notifier.adapter` in your config, if not it will just do one single `vim.notify` for start and end
 - Ensure you have a compatible notification plugin installed
 - Check adapter configuration
 - Try the default adapter first
