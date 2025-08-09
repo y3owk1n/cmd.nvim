@@ -1275,7 +1275,7 @@ function C.cached_shell_complete(executable, lead_args, cmd_line, cursor_pos)
 
   -- TODO:: Need to add support for zsh and bash, but not sure how
   -- for now, let's just throw error if it's not fish... Sorry! and please help!
-  if shell ~= "fish" then
+  if not shell:find("fish") then
     H.notify("Sorry, shell completion is only supported for fish at this moment.", "ERROR")
     H.notify("As I mainly daily driving fish shell, please help to make bash and zsh work ~.", "ERROR")
     return {}
