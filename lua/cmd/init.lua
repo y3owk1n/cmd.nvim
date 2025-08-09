@@ -167,7 +167,6 @@
 ---
 --->vim
 ---   :Cmd git status           " Run in async without terminal
----   :Cmd!!                    " Rerun `git status` in terminal
 ---   :Cmd! git log --oneline   " Force terminal execution
 ---<
 ---@brief ]]
