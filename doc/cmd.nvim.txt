@@ -18,6 +18,9 @@ This module needs to be set up with `require('cmd').setup({})` (replace
 # Highlighting ~
 
 Plugin defines several highlight groups:
+ - `CmdHistoryNormal` - for history floating window (linked to `NormalFloat`)
+ - `CmdHistoryBorder` - for history floating window border (linked to `FloatBorder`)
+ - `CmdHistoryTitle` - for history floating window title (linked to `FloatTitle`)
  - `CmdHistoryIdentifier` - for command ID in history (linked to `Identifier`)
  - `CmdHistoryTime` - for timestamp in history (linked to `Comment`)
  - `CmdSuccess` - for successful commands (linked to `MoreMsg`)
@@ -72,6 +75,7 @@ Default values:
     spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
     adapter = nil,
   },
+  history_formatter_fn = U.default_history_formatter,
 }
 
 ## Force terminal execution ~
@@ -169,7 +173,6 @@ Use `!` to force terminal execution, `!!` to rerun last command in terminal.
 
 >vim
    :Cmd git status           " Run in async without terminal
-   :Cmd!!                    " Rerun `git status` in terminal
    :Cmd! git log --oneline   " Force terminal execution
 <
 
@@ -279,8 +282,32 @@ Cmd.LogLevel                                              *cmd.api.Cmd.LogLevel*
         ("ERROR")  Error message
 
 
-Cmd.SpinnerDriver                                    *cmd.api.Cmd.SpinnerDriver*
+Cmd.FormattedLineOpts                            *cmd.api.Cmd.FormattedLineOpts*
     ---------------------------------------------------------------
+
+    Fields: ~
+        {display_text}  (string)   The display text
+        {hl_group?}     (string)   The highlight group of the text
+        {is_virtual?}   (boolean)  Whether the line is virtual
+
+
+                                                  *cmd.api.Cmd.ComputedLineOpts*
+Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
+
+    Fields: ~
+        {col_start?}          (number)  The start column of the text, NOTE: this is calculated and for type purpose only
+        {col_end?}            (number)  The end column of the text, NOTE: this is calculated and for type purpose only
+        {virtual_col_start?}  (number)  The start virtual column of the text, NOTE: this is calculated and for type purpose only
+        {virtual_col_end?}    (number)  The end virtual column of the text, NOTE: this is calculated and for type purpose only
+
+
+Cmd.CommandHistoryFormatterOpts        *cmd.api.Cmd.CommandHistoryFormatterOpts*
+
+    Fields: ~
+        {history}  (Cmd.CommandHistory)
+
+
+Cmd.SpinnerDriver                                    *cmd.api.Cmd.SpinnerDriver*
 
     Fields: ~
         {pre_exec}   (fun(opts:Cmd.Config.AsyncNotifier.PreExec):string|integer|number|nil)  Function called before command execution
@@ -356,13 +383,14 @@ Cmd.Config.AsyncNotifier.SpinnerAdapter
 Cmd.Config                                                  *cmd.api.Cmd.Config*
 
     Fields: ~
-        {force_terminal?}  (table<string,string[]>)    Patterns that force terminal execution per executable
-                                                       Main configuration table for the Cmd plugin.
-        {create_usercmd?}  (table<string,string>)      Auto-create user commands for executables
-        {env?}             (table<string,string[]>)    Environment variables per executable
-        {timeout?}         (integer)                   Default command timeout in milliseconds (default: 30000)
-        {completion?}      (Cmd.Config.Completion)     Shell completion configuration
-        {async_notifier?}  (Cmd.Config.AsyncNotifier)  Progress notification configuration
+        {force_terminal?}        (table<string,string[]>)                                             Patterns that force terminal execution per executable
+                                                                                                      Main configuration table for the Cmd plugin.
+        {create_usercmd?}        (table<string,string>)                                               Auto-create user commands for executables
+        {env?}                   (table<string,string[]>)                                             Environment variables per executable
+        {timeout?}               (integer)                                                            Default command timeout in milliseconds (default: 30000)
+        {completion?}            (Cmd.Config.Completion)                                              Shell completion configuration
+        {async_notifier?}        (Cmd.Config.AsyncNotifier)                                           Progress notification configuration
+        {history_formatter_fn?}  (fun(opts:Cmd.CommandHistoryFormatterOpts):Cmd.FormattedLineOpts[])  Formatter function for history display
 
 
                                                                   *Cmd.defaults*
@@ -438,6 +466,27 @@ Cmd.builtins                                                  *cmd.api.builtins*
              finish = function(id, msg, level) my_notify_finish(id, msg, level) end
            }
            local driver = require('cmd').builtins.spinner_driver(custom_adapter)
+
+           -- Custom history formatter
+           local custom_history_formatter = function(opts)
+             local history = opts.history
+             local formatted = {}
+
+             for i = 1, #history do
+               local entry = history[i]
+               local formatted_line = {
+                 display_text = entry.cmd[1],
+                 hl_group = "CmdHistoryIdentifier",
+                 is_virtual = true,
+               }
+               table.insert(formatted, formatted_line)
+             end
+
+             return formatted
+           end
+           require('cmd').setup({
+             history_formatter_fn = custom_history_formatter
+           })
 <
 
 

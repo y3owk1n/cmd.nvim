@@ -162,6 +162,18 @@ require("cmd").setup({
     spinner_chars = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" },
     adapter = require("cmd").builtins.spinner_adapters.snacks,
   },
+
+  -- Custom history formatter
+  history_formatter_fn = function(opts)
+    local entry = opts.history
+    return {
+      {
+        display_text = "Something",
+        hl_group = "CmdHistoryIdentifier", -- optional
+        is_virtual = true, -- should it be virtual text or not?
+      },
+    }
+  end
 })
 ```
 
