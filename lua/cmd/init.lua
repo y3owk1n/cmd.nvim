@@ -19,6 +19,9 @@
 ---# Highlighting ~
 ---
 ---Plugin defines several highlight groups:
+--- - `CmdHistoryNormal` - for history floating window (linked to `NormalFloat`)
+--- - `CmdHistoryBorder` - for history floating window border (linked to `FloatBorder`)
+--- - `CmdHistoryTitle` - for history floating window title (linked to `FloatTitle`)
 --- - `CmdHistoryIdentifier` - for command ID in history (linked to `Identifier`)
 --- - `CmdHistoryTime` - for timestamp in history (linked to `Comment`)
 --- - `CmdSuccess` - for successful commands (linked to `MoreMsg`)
@@ -69,6 +72,7 @@
 ---    spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
 ---    adapter = nil,
 ---  },
+---  history_formatter_fn = U.default_history_formatter,
 ---}
 ---
 ---## Force terminal execution ~
@@ -311,9 +315,9 @@ local S = {
 ---@type table<Cmd.CommandStatus, string>
 ---Icon mappings for different command statuses in notifications
 local icon_map = {
-  success = " ",
-  failed = " ",
-  cancelled = " ",
+  success = " ",
+  failed = " ",
+  cancelled = " ",
 }
 
 ---@type table<Cmd.CommandStatus, string>
@@ -538,9 +542,202 @@ function H.get_spinner_state(command_id)
   return S.spinner_state[command_id]
 end
 
+---Parse a format function result into computed line pieces.
+---Converts display_text to string, computes col/virtual positions and sets is_virtual default.
+---@private
+---@param format_result Cmd.FormattedLineOpts[]
+---@return Cmd.ComputedLineOpts[] parsed
+function H.parse_format_fn_result(format_result)
+  ---@type Cmd.ComputedLineOpts[]
+  local parsed = {}
+
+  ---@type number keep track of the col counts to proper compute every col position
+  local current_line_col = 0
+
+  ---@type number keep track of the virtual col counts to proper compute every virtual col position
+  local current_line_virtual_col = 0
+
+  for _, item in ipairs(format_result) do
+    if type(item) ~= "table" then
+      goto continue
+    end
+
+    ---@type Cmd.ComputedLineOpts
+    ---@diagnostic disable-next-line: missing-fields
+    local parsed_item = {}
+
+    -- force `is_virtual` to false just in case
+    parsed_item.is_virtual = item.is_virtual or false
+
+    if item.display_text then
+      if type(item.display_text) == "string" then
+        parsed_item.display_text = item.display_text
+      end
+
+      -- just in case user did not `tostring` the number
+      if type(item.display_text) == "number" then
+        parsed_item.display_text = tostring(item.display_text)
+      end
+
+      local text_length = parsed_item.is_virtual and vim.fn.strdisplaywidth(parsed_item.display_text)
+        or #parsed_item.display_text
+
+      if not parsed_item.is_virtual then
+        ---calculate the start and end column one by one
+        parsed_item.col_start = current_line_col
+        current_line_col = parsed_item.col_start + text_length
+        parsed_item.col_end = current_line_col
+
+        ---always set the virtual col start to the current line virtual col for later calculation
+        parsed_item.virtual_col_start = current_line_virtual_col
+        parsed_item.virtual_col_end = current_line_virtual_col
+      else
+        ---always set the col start to the current line col for later calculation
+        parsed_item.col_start = current_line_col
+        parsed_item.col_end = current_line_col
+
+        parsed_item.virtual_col_start = current_line_virtual_col
+        current_line_virtual_col = parsed_item.virtual_col_start + text_length
+        parsed_item.virtual_col_end = current_line_virtual_col
+      end
+    end
+
+    if item.hl_group then
+      if type(item.hl_group) == "string" then
+        parsed_item.hl_group = item.hl_group
+      end
+    end
+
+    table.insert(parsed, parsed_item)
+
+    ::continue::
+  end
+
+  return parsed
+end
+
+---Convert parsed computed line pieces back to a concatenated string.
+---@private
+---@param parsed Cmd.ComputedLineOpts[]
+---@param include_virtual? boolean
+---@return string
+function H.convert_parsed_format_result_to_string(parsed, include_virtual)
+  include_virtual = include_virtual or false
+  local display_lines = {}
+
+  for _, item in ipairs(parsed) do
+    if item.display_text then
+      if include_virtual then
+        table.insert(display_lines, item.display_text)
+      else
+        if not item.is_virtual then
+          table.insert(display_lines, item.display_text)
+        end
+      end
+    end
+  end
+
+  return table.concat(display_lines, "")
+end
+
+---Set extmarks / virtual text highlights for each computed line piece.
+---@private
+---@param ns number @namespace returned from nvim_create_namespace
+---@param bufnr number @buffer number
+---@param line_data Cmd.ComputedLineOpts[][] @array of lines -> array of pieces
+---@return nil
+function H.setup_virtual_text_hls(ns, bufnr, line_data)
+  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+
+  for line_number, line in ipairs(line_data) do
+    --- reverse the line so that the virtual text is on the right
+    local reversed_line = {}
+    for i = #line, 1, -1 do
+      table.insert(reversed_line, line[i])
+    end
+
+    for _, data in ipairs(reversed_line) do
+      if data.is_virtual then
+        -- set the virtual text in the right position with it's hl group
+        vim.api.nvim_buf_set_extmark(bufnr, ns, line_number - 1, data.col_start, {
+          virt_text = { { data.display_text, data.hl_group } },
+          virt_text_pos = "inline",
+        })
+      else
+        if data.col_start and data.col_end then
+          vim.api.nvim_buf_set_extmark(bufnr, ns, line_number - 1, data.col_start, {
+            end_col = data.col_end,
+            hl_group = data.hl_group,
+          })
+        end
+      end
+    end
+  end
+end
+
 ------------------------------------------------------------------
 -- UI
 ------------------------------------------------------------------
+
+---@class Cmd.FormattedLineOpts
+---@field display_text string The display text
+---@field hl_group? string The highlight group of the text
+---@field is_virtual? boolean Whether the line is virtual
+
+---@class Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
+---@field col_start? number The start column of the text, NOTE: this is calculated and for type purpose only
+---@field col_end? number The end column of the text, NOTE: this is calculated and for type purpose only
+---@field virtual_col_start? number The start virtual column of the text, NOTE: this is calculated and for type purpose only
+---@field virtual_col_end? number The end virtual column of the text, NOTE: this is calculated and for type purpose only
+
+---@class Cmd.CommandHistoryFormatterOpts
+---@field history Cmd.CommandHistory
+
+---Default history formatter.
+---@private
+---@param opts Cmd.CommandHistoryFormatterOpts
+---@return Cmd.FormattedLineOpts[]
+function U.default_history_formatter(opts)
+  local virtual_separator = { display_text = " ", is_virtual = true }
+
+  local entry = opts.history
+
+  local status_icon = icon_map[entry.status] or "?"
+
+  local cmd_str = table.concat(entry.cmd, " ")
+
+  local timetamp = entry.timestamp
+
+  local pretty_time = os.date("%Y-%m-%d %H:%M:%S", timetamp)
+
+  return {
+    {
+      display_text = string.format("#%d", entry.id),
+      hl_group = "CmdHistoryIdentifier",
+      is_virtual = true,
+    },
+    virtual_separator,
+    {
+      display_text = pretty_time,
+      hl_group = "CmdHistoryTime",
+      is_virtual = true,
+    },
+    virtual_separator,
+    {
+      display_text = status_icon,
+      hl_group = hl_groups[entry.status],
+      is_virtual = true,
+    },
+    virtual_separator,
+    {
+      display_text = string.format("[%s]", entry.type:sub(1, 1):upper()),
+      hl_group = hl_groups[entry.status],
+      is_virtual = true,
+    },
+    virtual_separator,
+    { display_text = cmd_str, hl_group = hl_groups[entry.status] },
+  }
+end
 
 ---@class Cmd.SpinnerDriver
 ---Driver interface for managing spinner lifecycle during command execution.
@@ -1281,6 +1478,7 @@ Cmd.config = {}
 ---@field timeout? integer Default command timeout in milliseconds (default: 30000)
 ---@field completion? Cmd.Config.Completion Shell completion configuration
 ---@field async_notifier? Cmd.Config.AsyncNotifier Progress notification configuration
+---@field history_formatter_fn? fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Formatter function for history display
 
 ---@tag Cmd.defaults
 
@@ -1299,6 +1497,7 @@ Cmd.defaults = {
     spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
     adapter = nil,
   },
+  history_formatter_fn = U.default_history_formatter,
 }
 
 ---Create user commands for configured executables if they don't already exist.
@@ -1460,81 +1659,79 @@ local function setup_usercmds()
       return
     end
 
-    ---@type table<integer, { text: string|osdate, hl_group: string }>[]
-    local segments = {}
+    local width = math.floor(vim.o.columns * 0.6)
+    local height = math.floor(vim.o.lines * 0.6)
 
-    local separator = {
-      text = " ",
-    }
+    -- Prepare floating window / buffer
+    local buf = vim.api.nvim_create_buf(false, true)
+    local win = vim.api.nvim_open_win(buf, false, {
+      relative = "editor",
+      width = width,
+      height = height,
+      col = (vim.o.columns - width) / 2,
+      row = (vim.o.lines - height) / 2,
+      style = "minimal",
+      border = "rounded",
+      title = "Command History",
+    })
+
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].bufhidden = "wipe"
+    vim.bo[buf].swapfile = false
+    vim.bo[buf].modifiable = true
+
+    vim.wo[win].winhighlight = string.format(
+      "NormalFloat:%s,FloatBorder:%s,FloatTitle:%s",
+      "CmdHistoryNormal",
+      "CmdHistoryBorder",
+      "CmdHistoryTitle"
+    )
+
+    local close = function()
+      pcall(vim.api.nvim_win_close, win, true)
+    end
+
+    for _, key in ipairs({ "<Esc>", "q", "<C-c>" }) do
+      vim.keymap.set("n", key, close, { buffer = buf, nowait = true })
+    end
+
+    vim.api.nvim_create_autocmd("WinLeave", { buffer = buf, once = true, callback = close })
+
+    ---@type string[]
+    local lines = {}
+
+    ---@type Cmd.FormattedLineOpts[][]
+    local formatted_raw_data = {}
 
     for i = #history, 1, -1 do
       local entry = history[i]
-      local status_icon = icon_map[entry.status] or "?"
 
-      local cmd_str = table.concat(entry.cmd, " ")
-      local timetamp = entry.timestamp
+      local formatter_fn = Cmd.config.history_formatter_fn or U.default_history_formatter
 
-      local pretty_time = os.date("%Y-%m-%d %H:%M:%S", timetamp)
+      if type(formatter_fn) ~= "function" then
+        error("`opts.history_formatter_fn` must be a function")
+        return
+      end
 
-      segments[i] = {
-        {
-          text = string.format("#%d", entry.id),
-          hl_group = "CmdHistoryIdentifier",
-        },
-        separator,
-        {
-          text = pretty_time,
-          hl_group = "CmdHistoryTime",
-        },
-        separator,
-        {
-          text = status_icon,
-          hl_group = hl_groups[entry.status],
-        },
-        separator,
-        {
-          text = string.format("[%s]", entry.type:sub(1, 1):upper()),
-          hl_group = hl_groups[entry.status],
-        },
-        separator,
-        {
-          text = cmd_str,
-          hl_group = hl_groups[entry.status],
-        },
-      }
+      local formatted = formatter_fn({
+        history = entry,
+      })
+
+      local formatted_line_data = H.parse_format_fn_result(formatted)
+      local formatted_line = H.convert_parsed_format_result_to_string(formatted_line_data)
+
+      table.insert(lines, formatted_line)
+      table.insert(formatted_raw_data, formatted_line_data)
     end
 
-    local lines = {}
+    pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
 
-    for i = 1, #segments do
-      local flattened = {}
-      local segment = segments[i]
-      for j = 1, #segment do
-        local item = segment[j]
-        table.insert(flattened, item.text)
-      end
-      lines[i] = table.concat(flattened, "")
-    end
+    vim.bo[buf].modifiable = false
 
-    U.show_buffer(lines, "cmd://history", function(buf)
-      local ns = vim.api.nvim_create_namespace("cmd_history")
-      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    local ns = vim.api.nvim_create_namespace("cmd_history")
+    H.setup_virtual_text_hls(ns, buf, formatted_raw_data)
 
-      for i = 1, #segments do
-        local segment = segments[i]
-        local col = 0
-        for j = 1, #segment do
-          local item = segment[j]
-          if item.hl_group then
-            vim.api.nvim_buf_set_extmark(buf, ns, i - 1, col, {
-              end_col = col + #item.text,
-              hl_group = item.hl_group,
-            })
-          end
-          col = col + #item.text
-        end
-      end
-    end)
+    vim.api.nvim_set_current_win(win)
   end, {
     desc = "History",
   })
@@ -1577,6 +1774,9 @@ local function setup_hls()
     vim.api.nvim_set_hl(0, name, opts)
   end
 
+  hi("CmdHistoryNormal", { link = "NormalFloat" })
+  hi("CmdHistoryBorder", { link = "FloatBorder" })
+  hi("CmdHistoryTitle", { link = "FloatTitle" })
   hi("CmdHistoryIdentifier", { link = "Identifier" })
   hi("CmdHistoryTime", { link = "Comment" })
   hi("CmdSuccess", { link = "MoreMsg" })
@@ -1677,10 +1877,32 @@ end
 ---     finish = function(id, msg, level) my_notify_finish(id, msg, level) end
 ---   }
 ---   local driver = require('cmd').builtins.spinner_driver(custom_adapter)
+---
+---   -- Custom history formatter
+---   local custom_history_formatter = function(opts)
+---     local history = opts.history
+---     local formatted = {}
+---
+---     for i = 1, #history do
+---       local entry = history[i]
+---       local formatted_line = {
+---         display_text = entry.cmd[1],
+---         hl_group = "CmdHistoryIdentifier",
+---         is_virtual = true,
+---       }
+---       table.insert(formatted, formatted_line)
+---     end
+---
+---     return formatted
+---   end
+---   require('cmd').setup({
+---     history_formatter_fn = custom_history_formatter
+---   })
 ---@usage ]]
 Cmd.builtins = {
   spinner_driver = U.spinner_driver,
   spinner_adapters = U.spinner_adapters,
+  history_formatter_fn = U.default_history_formatter,
 }
 
 return Cmd
