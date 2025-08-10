@@ -10,7 +10,7 @@ cmd.nvim transforms how you interact with command-line tools inside Neovim. Whet
 <https://github.com/user-attachments/assets/4afd6bca-4686-4c3c-90c9-495e1e161a3b>
 
 > [!NOTE]
-> Note that the notifier in the demo is my custom notifier, not a built in one.
+> Note that the notifier in the demo is my custom notifier (now can be found in [my another plugin](https://github.com/y3owk1n/notifier.nvim), not a built in one.
 
 > [!WARNING]
 > This plugin might not cover all edges and use cases, but it covers all my needs at this moment. Feel free to send in
