@@ -36,12 +36,11 @@ Table of Contents                                                 *cmd.contents*
 Setup ······························································ |cmd.setup|
 Configuration ····················································· |cmd.config|
 Commands ························································ |cmd.commands|
-API ·································································· |cmd.api|
+Types ······························································ |cmd.types|
+Public API ························································ |cmd.public|
 
 ==============================================================================
 Setup                                                                *cmd.setup*
-
-==============================================================================
 
                                                                    *Cmd.setup()*
                                                                      *Cmd-setup*
@@ -55,8 +54,6 @@ Setup                                                                *cmd.setup*
 
 ==============================================================================
 Configuration                                                       *cmd.config*
-
-==============================================================================
 
                                                                     *Cmd.config*
 # Module config ~
@@ -162,8 +159,6 @@ Configure progress notifications with different adapters:
 ==============================================================================
 Commands                                                          *cmd.commands*
 
-==============================================================================
-
                                                                           *:Cmd*
                                                                       *Cmd-:Cmd*
 # Execute a CLI command ~
@@ -214,18 +209,9 @@ timestamps, and execution type.
 <
 
 ==============================================================================
-API                                                                    *cmd.api*
+Types                                                                *cmd.types*
 
-==============================================================================
-
-                                                                           *Cmd*
-                                                                      *cmd-main*
-Cmd                                                                *cmd.api.Cmd*
-    Main module table
-
-
-Cmd.CommandHistory                                  *cmd.api.Cmd.CommandHistory*
-    ---------------------------------------------------------------
+Cmd.CommandHistory                               *cmd.public.Cmd.CommandHistory*
 
     Fields: ~
         {id}          (integer)              Unique command identifier
@@ -237,14 +223,14 @@ Cmd.CommandHistory                                  *cmd.api.Cmd.CommandHistory*
         {job?}        (uv.uv_process_t|nil)  Process handle if command is running
 
 
-Cmd.CommandType                                        *cmd.api.Cmd.CommandType*
+Cmd.CommandType                                     *cmd.public.Cmd.CommandType*
 
     Variants: ~
         ("normal")       Command executed in buffer mode
         ("interactive")  Command executed in terminal mode
 
 
-Cmd.CommandStatus                                    *cmd.api.Cmd.CommandStatus*
+Cmd.CommandStatus                                 *cmd.public.Cmd.CommandStatus*
 
     Variants: ~
         ("success")    Command completed successfully (exit code 0)
@@ -253,7 +239,7 @@ Cmd.CommandStatus                                    *cmd.api.Cmd.CommandStatus*
         ("running")    Command is currently executing
 
 
-Cmd.Spinner                                                *cmd.api.Cmd.Spinner*
+Cmd.Spinner                                             *cmd.public.Cmd.Spinner*
 
     Fields: ~
         {timer}   (uv.uv_timer_t|nil)  Timer handle for spinner animation
@@ -264,7 +250,7 @@ Cmd.Spinner                                                *cmd.api.Cmd.Spinner*
         {cmd}     (string)             Full command string being executed
 
 
-Cmd.State                                                    *cmd.api.Cmd.State*
+Cmd.State                                                 *cmd.public.Cmd.State*
 
     Fields: ~
         {cwd}                (string)                      Current working directory for command execution
@@ -272,9 +258,10 @@ Cmd.State                                                    *cmd.api.Cmd.State*
         {temp_script_cache}  (table<string,string>)        Cache of temporary completion scripts
         {spinner_state}      (table<integer,Cmd.Spinner>)  Active spinner states by command ID
         {command_history}    (Cmd.CommandHistory[])        Complete command execution history
+        {next_command_id}    (integer)                     Next command identifier for tracking
 
 
-Cmd.LogLevel                                              *cmd.api.Cmd.LogLevel*
+Cmd.LogLevel                                           *cmd.public.Cmd.LogLevel*
 
     Variants: ~
         ("INFO")   Informational message
@@ -282,8 +269,7 @@ Cmd.LogLevel                                              *cmd.api.Cmd.LogLevel*
         ("ERROR")  Error message
 
 
-Cmd.FormattedLineOpts                            *cmd.api.Cmd.FormattedLineOpts*
-    ---------------------------------------------------------------
+Cmd.FormattedLineOpts                         *cmd.public.Cmd.FormattedLineOpts*
 
     Fields: ~
         {display_text}  (string)   The display text
@@ -291,7 +277,7 @@ Cmd.FormattedLineOpts                            *cmd.api.Cmd.FormattedLineOpts*
         {is_virtual?}   (boolean)  Whether the line is virtual
 
 
-                                                  *cmd.api.Cmd.ComputedLineOpts*
+                                               *cmd.public.Cmd.ComputedLineOpts*
 Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
 
     Fields: ~
@@ -301,22 +287,22 @@ Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
         {virtual_col_end?}    (number)  The end virtual column of the text, NOTE: this is calculated and for type purpose only
 
 
-Cmd.CommandHistoryFormatterOpts        *cmd.api.Cmd.CommandHistoryFormatterOpts*
+                                    *cmd.public.Cmd.CommandHistoryFormatterOpts*
+Cmd.CommandHistoryFormatterOpts
 
     Fields: ~
         {history}  (Cmd.CommandHistory)
 
 
-Cmd.SpinnerDriver                                    *cmd.api.Cmd.SpinnerDriver*
+Cmd.SpinnerDriver                                 *cmd.public.Cmd.SpinnerDriver*
 
     Fields: ~
-        {pre_exec}   (fun(opts:Cmd.Config.ProgressNotifier.PreExec):string|integer|number|nil)  Function called before command execution
-                                                                                                Driver interface for managing spinner lifecycle during command execution.
-        {post_exec}  (fun(opts:Cmd.Config.ProgressNotifier.PostExec))                           Function called after command completion
+        {start}  (fun(opts:Cmd.Config.ProgressNotifier.Start):string|integer|number|nil)  Function called before command execution
+                                                                                          Driver interface for managing spinner lifecycle during command execution.
+        {stop}   (fun(opts:Cmd.Config.ProgressNotifier.Finish))                           Function called after command completion
 
 
-Cmd.RunResult                                            *cmd.api.Cmd.RunResult*
-    ---------------------------------------------------------------
+Cmd.RunResult                                         *cmd.public.Cmd.RunResult*
 
     Fields: ~
         {code}  (integer)  Exit code of the command (0 for success)
@@ -325,8 +311,7 @@ Cmd.RunResult                                            *cmd.api.Cmd.RunResult*
         {err}   (string)   Standard error content
 
 
-                                                                    *Cmd.config*
-Cmd.Config.Completion                            *cmd.api.Cmd.Config.Completion*
+Cmd.Config.Completion                         *cmd.public.Cmd.Config.Completion*
 
     Fields: ~
         {enabled?}                   (boolean)  Whether to enable shell completion (default: false)
@@ -335,35 +320,30 @@ Cmd.Config.Completion                            *cmd.api.Cmd.Config.Completion*
         {prompt_pattern_to_remove?}  (string)   Regex pattern to remove from completion output
 
 
-                                   *cmd.api.Cmd.Config.ProgressNotifier.PreExec*
-Cmd.Config.ProgressNotifier.PreExec
+                                  *cmd.public.Cmd.Config.ProgressNotifier.Start*
+Cmd.Config.ProgressNotifier.Start
 
     Fields: ~
-        {command_id}             (integer)                                       Unique command identifier
-                                                                                 Context passed to spinner adapter before command execution.
-        {args_raw}               (string[])                                      Original command arguments array
-        {args}                   (string)                                        Concatenated command string
-        {set_spinner_state}      (fun(command_id:integer,opts:Cmd.Spinner|nil))  Set spinner state
-        {get_spinner_state}      (fun(command_id:integer):Cmd.Spinner|nil)       Get spinner state
-        {spinner_chars}          (string[])                                      Array of spinner animation characters
-        {current_spinner_char?}  (string)                                        Currently displayed spinner character
+        {command_id}             (integer)   Unique command identifier
+                                             Context passed to spinner adapter before command execution.
+        {args_raw}               (string[])  Original command arguments array
+        {args}                   (string)    Concatenated command string
+        {current_spinner_char?}  (string)    Currently displayed spinner character
 
 
-                                  *cmd.api.Cmd.Config.ProgressNotifier.PostExec*
-Cmd.Config.ProgressNotifier.PostExec
+                                 *cmd.public.Cmd.Config.ProgressNotifier.Finish*
+Cmd.Config.ProgressNotifier.Finish
 
     Fields: ~
-        {command_id}                 (integer)                                       Unique command identifier
-                                                                                     Context passed to spinner adapter after command execution.
-        {args_raw}                   (string[])                                      Original command arguments array
-        {args}                       (string)                                        Concatenated command string
-        {set_spinner_state}          (fun(command_id:integer,opts:Cmd.Spinner|nil))  Set spinner state
-        {get_spinner_state}          (fun(command_id:integer):Cmd.Spinner|nil)       Get spinner state
-        {status}                     (Cmd.CommandStatus)                             Final command execution status
-        {user_defined_notifier_id?}  (string|integer|number|nil)                     Adapter-specific notification ID
+        {command_id}                 (integer)                    Unique command identifier
+                                                                  Context passed to spinner adapter after command execution.
+        {args_raw}                   (string[])                   Original command arguments array
+        {args}                       (string)                     Concatenated command string
+        {status}                     (Cmd.CommandStatus)          Final command execution status
+        {user_defined_notifier_id?}  (string|integer|number|nil)  Adapter-specific notification ID
 
 
-Cmd.Config.ProgressNotifier                *cmd.api.Cmd.Config.ProgressNotifier*
+Cmd.Config.ProgressNotifier             *cmd.public.Cmd.Config.ProgressNotifier*
 
     Fields: ~
         {spinner_chars?}  (string[])                                    Characters for spinner animation (default: braille patterns)
@@ -371,17 +351,17 @@ Cmd.Config.ProgressNotifier                *cmd.api.Cmd.Config.ProgressNotifier*
         {adapter?}        (Cmd.Config.ProgressNotifier.SpinnerAdapter)  Custom notification adapter
 
 
-                            *cmd.api.Cmd.Config.ProgressNotifier.SpinnerAdapter*
+                         *cmd.public.Cmd.Config.ProgressNotifier.SpinnerAdapter*
 Cmd.Config.ProgressNotifier.SpinnerAdapter
 
     Fields: ~
-        {start}   (fun(msg:string,data:Cmd.Config.ProgressNotifier.PreExec):string|integer|nil)                    Initialize progress notification
-                                                                                                                   Interface for custom notification adapters to handle progress display.
-        {update}  (fun(notify_id:string|integer|number|nil,msg:string,data:Cmd.Config.ProgressNotifier.PreExec))   Update progress message
-        {finish}  (fun(notify_id:string,msg:string,level:Cmd.LogLevel,data:Cmd.Config.ProgressNotifier.PostExec))  Show final result
+        {start}   (fun(msg:string,data:Cmd.Config.ProgressNotifier.Start):string|integer|nil)                                       Initialize progress notification
+                                                                                                                                    Interface for custom notification adapters to handle progress display.
+        {update}  (fun(notify_id:string|integer|number|nil,msg:string,data:Cmd.Config.ProgressNotifier.Start))                      Update progress message
+        {finish}  (fun(notify_id:string|integer|number|nil,msg:string,level:Cmd.LogLevel,data:Cmd.Config.ProgressNotifier.Finish))  Show final result
 
 
-Cmd.Config                                                  *cmd.api.Cmd.Config*
+Cmd.Config                                               *cmd.public.Cmd.Config*
 
     Fields: ~
         {force_terminal?}        (table<string,string[]>)                                             Patterns that force terminal execution per executable
@@ -394,16 +374,23 @@ Cmd.Config                                                  *cmd.api.Cmd.Config*
         {history_formatter_fn?}  (fun(opts:Cmd.CommandHistoryFormatterOpts):Cmd.FormattedLineOpts[])  Formatter function for history display
 
 
-                                                                  *Cmd.defaults*
-Cmd.defaults                                                  *cmd.api.defaults*
-    Default configuration values for all plugin options.
+Cmd.Builtins                                           *cmd.public.Cmd.Builtins*
 
-    Type: ~
-        (Cmd.Config)
+    Fields: ~
+        {spinner_adapters}  (table)  Built-in utilities and adapters for extending plugin functionality.
 
+
+Cmd.Builtins.Formatters                     *cmd.public.Cmd.Builtins.Formatters*
+
+    Fields: ~
+        {default_history}  (fun(opts:Cmd.CommandHistoryFormatterOpts):Cmd.FormattedLineOpts[])  Default history formatter
+
+
+==============================================================================
+Public API                                                          *cmd.public*
 
                                                                    *Cmd.setup()*
-Cmd.setup({user_config?})                                        *cmd.api.setup*
+M.setup({user_config?})                                       *cmd.public.setup*
     Set up the Cmd plugin with user configuration.
 
     Initializes all plugin components, validates configuration,
@@ -432,16 +419,8 @@ Cmd.setup({user_config?})                                        *cmd.api.setup*
 <
 
 
-Cmd.builtins                                              *cmd.api.Cmd.builtins*
-
-    Fields: ~
-        {spinner_driver}    (fun(adapter:Cmd.Config.ProgressNotifier.SpinnerAdapter):Cmd.SpinnerDriver)  Create spinner driver for adapter
-                                                                                                         Built-in utilities and adapters for extending plugin functionality.
-        {spinner_adapters}  (table)
-
-
                                                                   *Cmd.builtins*
-Cmd.builtins                                                  *cmd.api.builtins*
+M.builtins                                                 *cmd.public.builtins*
     Built-in utilities and notification adapters.
 
     Provides pre-built notification adapters for popular plugins and utilities
@@ -449,7 +428,7 @@ Cmd.builtins                                                  *cmd.api.builtins*
 
 
     Type: ~
-        (Cmd.builtins)
+        (Cmd.Builtins)
 
     Usage: ~
 >lua
@@ -466,7 +445,11 @@ Cmd.builtins                                                  *cmd.api.builtins*
              update = function(id, msg) my_notify_update(id, msg) end,
              finish = function(id, msg, level) my_notify_finish(id, msg, level) end
            }
-           local driver = require('cmd').builtins.spinner_driver(custom_adapter)
+           require('cmd').setup({
+             progress_notifier = {
+               adapter = custom_adapter
+             }
+           })
 
            -- Custom history formatter
            local custom_history_formatter = function(opts)
