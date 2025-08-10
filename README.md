@@ -413,7 +413,7 @@ async_notifier = {
 :Git checkout -b some-branch
 " Do some work here...
 :Git add <file>
-:Git commit -m "some branch changes"
+:Git commit
 :Git push
 :Gh pr create
 :Gh pr checks --watch
@@ -484,7 +484,7 @@ Create convenient mappings for common workflows:
 ```lua
 -- Quick git commands
 vim.keymap.set("n", "<leader>gs", ":Cmd git status<CR>")
-vim.keymap.set("n", "<leader>ga", ":Cmd git add .<CR>")
+vim.keymap.set("n", "<leader>ga", ":Cmd git add --all<CR>")
 vim.keymap.set("n", "<leader>gc", ":Cmd! git commit<CR>")
 vim.keymap.set("n", "<leader>gp", ":Cmd git push<CR>")
 
