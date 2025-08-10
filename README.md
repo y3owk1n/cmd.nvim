@@ -121,15 +121,18 @@ Now you can use the `:Cmd` command:
 ## ⚙️ Configuration
 
 <details>
-<summary><b>🎛️ Full Configuration Options</b></summary>
+<summary><b>Full Configuration Options</b></summary>
 
 ```lua
 require("cmd").setup({
   -- Force terminal execution for specific command patterns
   force_terminal = {
-    git = { "push", "pull", "fetch", "rebase" },
     npm = { "run", "start" },
     docker = { "run", "exec" },
+    git = { "add -p", "commit" },
+    gh = { "pr create", "checks --watch" },
+    just = { "rebuild", "update" },
+    nix = { "flake update" },
   },
 
   -- Auto-create user commands for executables
@@ -138,6 +141,8 @@ require("cmd").setup({
     git = "Git",       -- Creates :Git command
     npm = "Npm",       -- Creates :Npm command
     docker = "Docker", -- Creates :Docker command
+    just = "Just",     -- Creates :Just command
+    gh = "Gh",         -- Creates :Gh command
   },
 
   -- Environment variables per executable
@@ -154,7 +159,7 @@ require("cmd").setup({
   completion = {
     enabled = true,
     shell = "/bin/fish", -- or "/bin/bash", "/bin/zsh" (Note that bash and fish are not yet be supported, please help!)
-    prompt_pattern_to_remove = "^%$ ", -- Remove shell prompt
+    prompt_pattern_to_remove = "^%$ ", -- Remove shell prompt, put whatever shell prompt sign of yours
   },
 
   -- Progress notifications
@@ -166,6 +171,8 @@ require("cmd").setup({
   -- Custom history formatter
   history_formatter_fn = function(opts)
     local entry = opts.history
+
+    ---returns a table of metadata for each line and will evaluated in order
     return {
       {
         display_text = "Something",
@@ -179,7 +186,9 @@ require("cmd").setup({
 
 </details>
 
-> [!WARNING] > `bash` and `fish` are not yet supported for autocomplete, as I don't have them configured on my machine...
+> [!WARNING]
+>
+> `bash` and `fish` are not yet supported for autocomplete, as I don't have them configured on my machine...
 > Whovere are good with this and are using these shells, please help me out to make the completion work for them ~
 
 ### 🔌 Notification Adapters
@@ -373,13 +382,13 @@ async_notifier = {
 ```vim
 " Git workflows
 :Cmd git status -s
-:Cmd git add .
+:Cmd git add --all
 :Cmd! git add -p
 :Cmd! git commit
 :Cmd git push
 
 " Github workflows
-:Cmd gh pr create
+:Cmd! gh pr create
 :Cmd gh pr merge
 :Cmd! gh pr checks --watch
 
@@ -397,6 +406,22 @@ async_notifier = {
 " File operations with current buffer
 :Cmd ls %:h
 :Cmd cat %
+
+" My most used git and github workflow, i am using `:Git` and `:Gh` commands
+:Git checkout main
+:Git pull --rebase
+:Git checkout -b some-branch
+" Do some work here...
+:Git add <file>
+:Git commit -m "some branch changes"
+:Git push
+:Gh pr create
+:Gh pr checks --watch
+:Gh pr merge --squash
+:Git checkout main
+:Git pull --rebase
+:Git remote prune origin
+:Git branch -D some-branch
 ```
 
 </details>
@@ -442,6 +467,11 @@ Cancel long-running commands gracefully:
 Customize the appearance by modifying these highlight groups:
 
 ```vim
+hi CmdHistoryNormal guifg=#50fa7b  " Normal window for command history (default: links to NormalFloat)
+hi CmdHistoryBorder guifg=#50fa7b  " Border window for command history (default: links to FloatBorder)
+hi CmdHistoryTitle guifg=#50fa7b  " Title window for command history (default: links to FloatTitle)
+hi CmdHistoryIdentifier guifg=#50fa7b  " Identifier for command history (default: links to Identifier)
+hi CmdHistoryTime guifg=#50fa7b  " Timestamp for command history (default: links to Comment)
 hi CmdSuccess   guifg=#50fa7b  " Successful commands (default: links to MoreMsg)
 hi CmdFailed    guifg=#ff5555  " Failed commands (default: links to ErrorMsg)
 hi CmdCancelled guifg=#f1fa8c  " Cancelled commands (default: links to WarningMsg)
@@ -561,7 +591,8 @@ This creates commands like `:Git status`, `:Docker ps`, `:K get pods`, etc.
 
 ### "What about `:terminal`?"
 
-- Terminal is great for interactive shells, cmd.nvim is for running specific commands
+- Terminal is great for interactive shells, cmd.nvim is for running specific commands, though it still uses the same
+  `terminal` command under the hood
 
 </details>
 
