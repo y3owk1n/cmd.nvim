@@ -35,7 +35,6 @@
 ---@toc cmd.contents
 
 ---@mod cmd.setup Setup
----@divider =
 
 ---@tag Cmd.setup()
 ---@tag Cmd-setup
@@ -51,7 +50,6 @@
 ---@brief ]]
 
 ---@mod cmd.config Configuration
----@divider =
 
 ---@tag Cmd.config
 
@@ -158,7 +156,6 @@
 ---@brief ]]
 
 ---@mod cmd.commands Commands
----@divider =
 
 ---@tag :Cmd
 ---@tag Cmd-:Cmd
@@ -221,8 +218,11 @@
 ---<
 ---@brief ]]
 
----@mod cmd.api API
----@divider =
+local M = {}
+
+-- ============================================================================
+-- ENVIRONMENT VALIDATION & SETUP
+-- ============================================================================
 
 local ok, uv = pcall(function()
   return vim.uv or vim.loop
@@ -236,45 +236,15 @@ if nvim.major == 0 and (nvim.minor < 10 or (nvim.minor == 10 and nvim.patch < 0)
   error("Cmd.nvim requires Neovim 0.10+")
 end
 
-------------------------------------------------------------------
--- Modules & internal namespaces
-------------------------------------------------------------------
-
----@tag Cmd
----@tag cmd-main
-
----Main module table
----@class Cmd
-local Cmd = {}
-
----@private
----@class Cmd.Helpers
----Collection of internal helper functions for file operations, sanitization,
----environment handling, and temporary script management.
-local H = {}
-
----@private
----@class Cmd.UI
----User interface components including spinner adapters, buffer management,
----terminal integration, and visual feedback systems.
-local U = {
-  ---@type table<string, Cmd.Config.ProgressNotifier.SpinnerAdapter>
-  spinner_adapters = {},
-}
-
----@private
----@class Cmd.Core
----Core functionality for command execution, process management,
----completion handling, and command lifecycle management.
-local C = {}
-
 ---@private
 ---Flag to prevent setup from running multiple times
-local did_setup = false
+local setup_complete = false
 
-------------------------------------------------------------------
--- Constants & Setup
-------------------------------------------------------------------
+-- ============================================================================
+-- TYPE DEFINITIONS
+-- ============================================================================
+
+---@mod cmd.types Types
 
 ---@class Cmd.CommandHistory
 ---Represents a single command entry in the execution history.
@@ -309,12 +279,91 @@ local did_setup = false
 ---@field temp_script_cache table<string, string> Cache of temporary completion scripts
 ---@field spinner_state table<integer, Cmd.Spinner> Active spinner states by command ID
 ---@field command_history Cmd.CommandHistory[] Complete command execution history
-local S = {
-  cwd = "",
-  temp_script_cache = {},
-  spinner_state = {},
-  command_history = {},
-}
+---@field next_command_id integer Next command identifier for tracking
+
+---@alias Cmd.LogLevel
+---| '"INFO"'  # Informational message
+---| '"WARN"'  # Warning message
+---| '"ERROR"' # Error message
+
+---@class Cmd.FormattedLineOpts
+---@field display_text string The display text
+---@field hl_group? string The highlight group of the text
+---@field is_virtual? boolean Whether the line is virtual
+
+---@class Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
+---@field col_start? number The start column of the text, NOTE: this is calculated and for type purpose only
+---@field col_end? number The end column of the text, NOTE: this is calculated and for type purpose only
+---@field virtual_col_start? number The start virtual column of the text, NOTE: this is calculated and for type purpose only
+---@field virtual_col_end? number The end virtual column of the text, NOTE: this is calculated and for type purpose only
+
+---@class Cmd.CommandHistoryFormatterOpts
+---@field history Cmd.CommandHistory
+
+---@class Cmd.SpinnerDriver
+---Driver interface for managing spinner lifecycle during command execution.
+---@field start fun(opts: Cmd.Config.ProgressNotifier.Start): string|integer|number|nil Function called before command execution
+---@field stop fun(opts: Cmd.Config.ProgressNotifier.Finish) Function called after command completion
+
+---@class Cmd.RunResult
+---Result of a command execution, returned only for synchronous operations.
+---@field code integer Exit code of the command (0 for success)
+---@field out string Standard output content
+---@field err string Standard error content
+
+---@class Cmd.Config.Completion
+---Configuration for shell completion functionality.
+---@field enabled? boolean Whether to enable shell completion (default: false)
+---@field shell? string Shell executable to use for completion (default: $SHELL or "/bin/sh")
+---@field prompt_pattern_to_remove? string Regex pattern to remove from completion output
+
+---@class Cmd.Config.ProgressNotifier.Start
+---Context passed to spinner adapter before command execution.
+---@field command_id integer Unique command identifier
+---@field args_raw string[] Original command arguments array
+---@field args string Concatenated command string
+---@field current_spinner_char? string Currently displayed spinner character
+
+---@class Cmd.Config.ProgressNotifier.Finish
+---Context passed to spinner adapter after command execution.
+---@field command_id integer Unique command identifier
+---@field args_raw string[] Original command arguments array
+---@field args string Concatenated command string
+---@field status Cmd.CommandStatus Final command execution status
+---@field user_defined_notifier_id? string|integer|number|nil Adapter-specific notification ID
+
+---@class Cmd.Config.ProgressNotifier
+---Configuration for async command notifications and progress indicators.
+---@field spinner_chars? string[] Characters for spinner animation (default: braille patterns)
+---@field adapter? Cmd.Config.ProgressNotifier.SpinnerAdapter Custom notification adapter
+
+---@class Cmd.Config.ProgressNotifier.SpinnerAdapter
+---Interface for custom notification adapters to handle progress display.
+---@field start fun(msg: string, data: Cmd.Config.ProgressNotifier.Start): string|integer|nil Initialize progress notification
+---@field update fun(notify_id: string|integer|number|nil, msg: string, data: Cmd.Config.ProgressNotifier.Start) Update progress message
+---@field finish fun(notify_id: string|integer|number|nil, msg: string, level: Cmd.LogLevel, data: Cmd.Config.ProgressNotifier.Finish) Show final result
+
+---@class Cmd.Config
+---Main configuration table for the Cmd plugin.
+---@field force_terminal? table<string, string[]> Patterns that force terminal execution per executable
+---@field create_usercmd? table<string, string> Auto-create user commands for executables
+---@field env? table<string, string[]> Environment variables per executable
+---@field timeout? integer Default command timeout in milliseconds (default: 30000)
+---@field completion? Cmd.Config.Completion Shell completion configuration
+---@field progress_notifier? Cmd.Config.ProgressNotifier Progress notification configuration
+---@field history_formatter_fn? fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Formatter function for history display
+
+---@class Cmd.Builtins
+---Built-in utilities and adapters for extending plugin functionality.
+---@field spinner_adapters table<"snacks"|"mini"|"fidget", Cmd.Config.ProgressNotifier.SpinnerAdapter> Pre-built notification adapters
+---@field formatters Cmd.Builtins.Formatters Built-in formatters
+
+---@class Cmd.Builtins.Formatters
+---@field default_history fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Default history formatter
+
+-- ============================================================================
+-- CONSTANTS
+-- ============================================================================
 
 ---@type table<Cmd.CommandStatus, string>
 ---Icon mappings for different command statuses in notifications
@@ -340,120 +389,152 @@ local hl_groups = {
   cancelled = "CmdCancelled",
 }
 
-------------------------------------------------------------------
--- Helpers
-------------------------------------------------------------------
+-- ============================================================================
+-- GLOBAL STATE MANAGEMENT
+-- ============================================================================
 
----Safely delete a file with deferred execution to prevent blocking.
----
----@param path string Absolute path to file to delete
+---@type Cmd.State
+local State = {
+  config = {},
+  cwd = "",
+  temp_script_cache = {},
+  spinner_state = {},
+  command_history = {},
+  next_command_id = 1,
+}
+
+---Initialize state
+---@private
 ---@return nil
-function H.safe_delete(path)
+local function init_state()
+  State.cwd = vim.fn.getcwd()
+  State.next_command_id = 1
+  State.command_history = {}
+  State.spinner_state = {}
+  State.temp_script_cache = {}
+end
+
+-- ============================================================================
+-- CONFIGURATION MANAGEMENT
+-- ============================================================================
+
+---Default configuration
+---@type Cmd.Config
+local DEFAULT_CONFIG = {
+  force_terminal = {},
+  create_usercmd = {},
+  env = {},
+  timeout = 30000,
+  completion = {
+    enabled = false,
+    shell = vim.env.SHELL or "/bin/sh",
+  },
+  progress_notifier = {
+    spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
+    adapter = nil,
+  },
+  history_formatter_fn = nil, -- Set below
+}
+
+---Validate configuration
+---@param config Cmd.Config
+---@return boolean, string?
+---@private
+local function validate_config(config)
+  -- Validate timeout
+  if config.timeout and (type(config.timeout) ~= "number" or config.timeout < 0) then
+    return false, "timeout must be a positive number"
+  end
+
+  -- Validate completion config
+  if config.completion then
+    local comp = config.completion
+    if comp and comp.enabled ~= nil and type(comp.enabled) ~= "boolean" then
+      return false, "completion.enabled must be boolean"
+    end
+    if comp and comp.shell and type(comp.shell) ~= "string" then
+      return false, "completion.shell must be string"
+    end
+  end
+
+  -- Validate progress notifier
+  if config.progress_notifier and config.progress_notifier.adapter then
+    local adapter = config.progress_notifier.adapter
+    if type(adapter) ~= "table" then
+      return false, "progress_notifier.adapter must be table"
+    end
+
+    local required_methods = { "start", "update", "finish" }
+    for _, method in ipairs(required_methods) do
+      if type(adapter[method]) ~= "function" then
+        return false, string.format("progress_notifier.adapter.%s must be function", method)
+      end
+    end
+  end
+
+  return true, nil
+end
+
+-- ============================================================================
+-- UTILITY FUNCTIONS
+-- ============================================================================
+
+---@private
+---@class Cmd.Utils
+local Utils = {}
+
+---Safe file deletion with deferred execution
+---@param path string File path to delete
+Utils.safe_delete = function(path)
   vim.defer_fn(function()
     pcall(vim.fn.delete, path)
   end, 0)
 end
 
----Ensure that the current working directory is properly set for command execution.
----
----Uses the directory of the current buffer if available and valid,
----otherwise falls back to Neovim's current working directory.
----
----@return nil
-function H.ensure_cwd()
+---Ensure current working directory is set
+Utils.ensure_cwd = function()
   local buf_dir = vim.fn.expand("%:p:h")
-
   if buf_dir and vim.fn.isdirectory(buf_dir) == 1 then
-    S.cwd = buf_dir
+    State.cwd = buf_dir
   else
-    S.cwd = vim.fn.getcwd()
+    State.cwd = vim.fn.getcwd()
   end
 end
 
----@alias Cmd.LogLevel
----| '"INFO"'  # Informational message
----| '"WARN"'  # Warning message
----| '"ERROR"' # Error message
-
----Display a notification message with specified log level.
----
----@param msg string Message content to display
----@param lvl Cmd.LogLevel Log level for the notification
----@param opts? table Additional notification options (title, timeout, etc.)
----@return nil
-function H.notify(msg, lvl, opts)
+---Display notification with proper formatting
+---@param msg string Message content
+---@param level Cmd.LogLevel Log level
+---@param opts? table Additional options
+Utils.notify = function(msg, level, opts)
   opts = opts or {}
-  opts.title = opts.title or "cmd"
-  vim.notify(msg, vim.log.levels[lvl:upper()], opts)
+  opts.title = opts.title or "cmd.nvim"
+  vim.notify(msg, vim.log.levels[level:upper()], opts)
 end
 
----Stream or notify a command execution, throw an error if not the right command_type
----
----@param stages "pre" | "post"
----@param status Cmd.CommandStatus
----@param command_id integer Unique command identifier
----@param args string[] Command arguments array
----@param notify_id? string|number|nil Notification ID
----@return string|number|nil notify_id
-function H.stream_or_notify(stages, status, command_id, args, notify_id)
-  if stages == "pre" then
-    if Cmd.config.progress_notifier.adapter and type(Cmd.config.progress_notifier.adapter) == "table" then
-      return U.spinner_driver(Cmd.config.progress_notifier.adapter).pre_exec({
-        command_id = command_id,
-        args_raw = args,
-        args = table.concat(args, " "),
-        get_spinner_state = H.get_spinner_state,
-        set_spinner_state = H.set_spinner_state,
-        spinner_chars = Cmd.config.progress_notifier.spinner_chars,
-      })
-    else
-      local msg = string.format("? [#%s] running `%s`", command_id, table.concat(args, " "))
-      H.notify(msg, "INFO")
-      return
-    end
-  end
-
-  if stages == "post" then
-    if Cmd.config.progress_notifier.adapter and type(Cmd.config.progress_notifier.adapter) == "table" then
-      U.spinner_driver(Cmd.config.progress_notifier.adapter).post_exec({
-        command_id = command_id,
-        args_raw = args,
-        args = table.concat(args, " "),
-        get_spinner_state = H.get_spinner_state,
-        set_spinner_state = H.set_spinner_state,
-        status = status,
-        user_defined_notifier_id = notify_id,
-      })
-      return
-    else
-      local icon = icon_map[status] or " "
-      local level = level_map[status] or vim.log.levels.ERROR
-
-      local msg = string.format("%s [#%s] %s `%s`", icon, command_id, status, table.concat(args, " "))
-      H.notify(msg, level)
-      return
-    end
-  end
-
-  error("must be pre or post stage")
+---Convert stream chunks to string with normalized line endings
+---@param chunks string[] Data chunks
+---@return string
+Utils.stream_to_string = function(chunks)
+  local normalized = table.concat(chunks):gsub("\r\n", "\n"):gsub("\r", "\n")
+  return normalized
 end
 
----Convert stream chunks array to a single string with proper line endings.
----
----@param chunks string[] Array of data chunks from stream
----@return string Concatenated string with normalized line endings
-function H.stream_tostring(chunks)
-  return (table.concat(chunks):gsub("\r", "\n"))
+---Remove empty lines from array
+---@param lines string[] Array of strings
+---@return string[] Filtered array
+Utils.trim_empty_lines = function(lines)
+  return vim.tbl_filter(function(line)
+    return line and line:match("%S") ~= nil
+  end, lines)
 end
 
----Start reading from a stream pipe into a buffer array.
----
----@param pipe uv.uv_stream_t Stream handle to read from
----@param buffer string[] Buffer array to store chunks
----@return nil
-function H.read_stream(pipe, buffer)
+---Start reading from stream pipe into buffer
+---@param pipe uv.uv_stream_t Stream handle
+---@param buffer string[] Buffer to store chunks
+Utils.read_stream = function(pipe, buffer)
   uv.read_start(pipe, function(err, chunk)
     if err then
+      Utils.notify("Stream read error: " .. tostring(err), "ERROR")
       return
     end
     if chunk then
@@ -462,24 +543,28 @@ function H.read_stream(pipe, buffer)
   end)
 end
 
----Remove empty lines from string array while preserving order.
----
----@param lines string[] Array of strings that may contain empty lines
----@return string[] Filtered array without empty strings
-function H.trim_empty_lines(lines)
-  return vim.tbl_filter(function(s)
-    return s ~= ""
-  end, lines)
+---Sanitize line by removing ANSI codes and trimming
+---@param line string Input line
+---@return string Cleaned line
+Utils.sanitize_line = function(line)
+  line = line
+    :gsub("\27%[[%d:;]*%d?[ -/]*[@-~]", "") -- Remove ANSI escape codes
+    :gsub("^%s+", "") -- Trim leading spaces
+    :gsub("%s+$", "") -- Trim trailing spaces
+
+  -- Remove prompt pattern if configured
+  if State.config.completion.prompt_pattern_to_remove then
+    line = line:gsub(State.config.completion.prompt_pattern_to_remove, ""):gsub("^%s+", ""):gsub("%s+$", "")
+  end
+
+  return line
 end
 
----Get environment variables configured for a specific executable.
----
----@param executable string Name of the executable to get environment for
----@return string[]|nil Array of environment variable assignments or nil if none
-function H.get_cmd_env(executable)
-  local env = Cmd.config.env or {}
-
-  ---@type string[]
+---Get environment variables for executable
+---@param executable string Executable name
+---@return string[]? Environment variables or nil
+Utils.get_cmd_env = function(executable)
+  local env = State.config.env or {}
   local found = {}
 
   if not vim.tbl_isempty(env) then
@@ -492,109 +577,7 @@ function H.get_cmd_env(executable)
     end
   end
 
-  if #found == 0 then
-    return nil
-  end
-
-  return found
-end
-
----Sanitize a line by removing ANSI escape sequences and trimming whitespace.
----
----Also removes configured prompt patterns if specified in configuration.
----
----@param line string Input line that may contain escape sequences
----@return string Cleaned line with escape sequences removed
-function H.sanitize_line(line)
-  line = line
-    :gsub("\27%[[%d:;]*%d?[ -/]*[@-~]", "") -- Strip every CSI escape. NOTE: Generated by AI
-    :gsub("^%s+", "") -- trim leading whitespaces
-    :gsub("%s+$", "") -- trim trailing whitespaces
-  if Cmd.config.completion.prompt_pattern_to_remove then
-    --- trim the whitespaces again after removing the prompt pattern
-    line = line:gsub(Cmd.config.completion.prompt_pattern_to_remove, ""):gsub("^%s+", ""):gsub("%s+$", "")
-  end
-  return line
-end
-
----Sanitize shell completion output by cleaning lines and extracting completions.
----
----Processes each line to remove tab characters and extract the first completion token.
----
----@param lines string[] Raw completion output lines from shell
----@return string[] Cleaned completion candidates
-function H.sanitize_file_output(lines)
-  ---@type string[]
-  local cleaned = {}
-  for _, l in ipairs(lines) do
-    local first = (H.sanitize_line(l):gsub("\t.*", "")) -- NOTE: safer split
-    if first ~= "" then
-      table.insert(cleaned, first)
-    end
-  end
-
-  return cleaned
-end
-
----Write a temporary shell script for completion based on the shell type.
----
----Creates shell-specific completion scripts for bash, zsh, and fish shells.
----Scripts are cached to avoid recreating them for each completion request.
----
----@param shell string Path to shell executable
----@return string|nil Path to temporary script file or nil on failure
-function H.write_temp_script(shell)
-  if S.temp_script_cache[shell] then
-    return S.temp_script_cache[shell]
-  end
-
-  local path = vim.fn.tempname() .. ".sh"
-  local content = ""
-
-  if shell:find("fish") then
-    content = [[
-#!/usr/bin/env fish
-set -l input "$argv"
-complete -C "$input"
-]]
-  elseif shell:find("zsh") then
-    -- TODO: Need help with this, i don't use zsh and no idea how to make it work!
-    content = [[]]
-  else -- bash
-    -- TODO: Need help with this, i don't use bash and no idea how to make it work!
-    content = [[]]
-  end
-
-  local fd = uv.fs_open(path, "w", 384) -- 0600
-  if not fd then
-    return nil
-  end
-  uv.fs_write(fd, content)
-  uv.fs_close(fd)
-
-  S.temp_script_cache[shell] = path
-
-  return path
-end
-
----Set the spinner state for a specific command.
----
----@param command_id integer Unique command identifier
----@param opts Cmd.Spinner|nil Spinner configuration or nil to clear
-function H.set_spinner_state(command_id, opts)
-  if opts and not vim.tbl_isempty(opts) then
-    opts = vim.tbl_deep_extend("force", S.spinner_state[command_id] or {}, opts)
-  end
-
-  S.spinner_state[command_id] = opts
-end
-
----Get the current spinner state for a specific command.
----
----@param command_id integer Unique command identifier
----@return Cmd.Spinner|nil Current spinner state or nil if not found
-function H.get_spinner_state(command_id)
-  return S.spinner_state[command_id]
+  return #found > 0 and found or nil
 end
 
 ---Parse a format function result into computed line pieces.
@@ -602,7 +585,7 @@ end
 ---@private
 ---@param format_result Cmd.FormattedLineOpts[]
 ---@return Cmd.ComputedLineOpts[] parsed
-function H.parse_format_fn_result(format_result)
+function Utils.parse_format_fn_result(format_result)
   ---@type Cmd.ComputedLineOpts[]
   local parsed = {}
 
@@ -676,7 +659,7 @@ end
 ---@param parsed Cmd.ComputedLineOpts[]
 ---@param include_virtual? boolean
 ---@return string
-function H.convert_parsed_format_result_to_string(parsed, include_virtual)
+function Utils.convert_parsed_format_result_to_string(parsed, include_virtual)
   include_virtual = include_virtual or false
   local display_lines = {}
 
@@ -701,7 +684,7 @@ end
 ---@param bufnr number @buffer number
 ---@param line_data Cmd.ComputedLineOpts[][] @array of lines -> array of pieces
 ---@return nil
-function H.setup_virtual_text_hls(ns, bufnr, line_data)
+function Utils.setup_virtual_text_hls(ns, bufnr, line_data)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 
   for line_number, line in ipairs(line_data) do
@@ -730,29 +713,54 @@ function H.setup_virtual_text_hls(ns, bufnr, line_data)
   end
 end
 
-------------------------------------------------------------------
--- UI
-------------------------------------------------------------------
+-- ============================================================================
+-- COMMAND HISTORY MANAGEMENT
+-- ============================================================================
 
----@class Cmd.FormattedLineOpts
----@field display_text string The display text
----@field hl_group? string The highlight group of the text
----@field is_virtual? boolean Whether the line is virtual
-
----@class Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
----@field col_start? number The start column of the text, NOTE: this is calculated and for type purpose only
----@field col_end? number The end column of the text, NOTE: this is calculated and for type purpose only
----@field virtual_col_start? number The start virtual column of the text, NOTE: this is calculated and for type purpose only
----@field virtual_col_end? number The end virtual column of the text, NOTE: this is calculated and for type purpose only
-
----@class Cmd.CommandHistoryFormatterOpts
----@field history Cmd.CommandHistory
-
----Default history formatter.
 ---@private
+---@class Cmd.History
+local History = {}
+
+---Track command in history
+---@param entry Cmd.CommandHistory Command entry
+History.track = function(entry)
+  local id = entry.id
+  local existing = State.command_history[id] or {}
+
+  -- Merge with existing entry
+  for key, value in pairs(entry) do
+    existing[key] = value
+  end
+
+  existing.timestamp = existing.timestamp or os.time()
+  State.command_history[id] = existing
+end
+
+---Get command from history by ID
+---@param id integer Command ID
+---@return Cmd.CommandHistory? Command entry or nil
+History.get = function(id)
+  return State.command_history[id]
+end
+
+---Get all command history
+---@return Cmd.CommandHistory[] All history entries
+History.get_all = function()
+  return State.command_history
+end
+
+---Get next available command ID
+---@return integer Next command ID
+History.get_next_id = function()
+  local id = State.next_command_id
+  State.next_command_id = id + 1
+  return id
+end
+
+---Default history formatter
 ---@param opts Cmd.CommandHistoryFormatterOpts
 ---@return Cmd.FormattedLineOpts[]
-function U.default_history_formatter(opts)
+History.default_formatter = function(opts)
   local virtual_separator = { display_text = " ", is_virtual = true }
 
   local entry = opts.history
@@ -794,204 +802,336 @@ function U.default_history_formatter(opts)
   }
 end
 
----@class Cmd.SpinnerDriver
----Driver interface for managing spinner lifecycle during command execution.
----@field pre_exec fun(opts: Cmd.Config.ProgressNotifier.PreExec): string|integer|number|nil Function called before command execution
----@field post_exec fun(opts: Cmd.Config.ProgressNotifier.PostExec) Function called after command completion
+-- ============================================================================
+-- SPINNER & PROGRESS MANAGEMENT
+-- ============================================================================
 
----Create a spinner driver for a specific adapter.
----
----The driver manages the complete lifecycle of progress notifications,
----from starting the spinner animation to showing the final result.
----
----@param adapter Cmd.Config.ProgressNotifier.SpinnerAdapter Notification adapter to use
+---@private
+---@class Cmd.SpinnerManager
+local Spinner = {}
+
+---Set spinner state for command
+---@param command_id integer Command ID
+---@param state Cmd.Spinner? Spinner state or nil to clear
+Spinner.set_state = function(command_id, state)
+  if state then
+    State.spinner_state[command_id] = vim.tbl_deep_extend("force", State.spinner_state[command_id] or {}, state)
+  else
+    State.spinner_state[command_id] = nil
+  end
+end
+
+---Get spinner state for command
+---@param command_id integer Command ID
+---@return Cmd.Spinner? Current state or nil
+Spinner.get_state = function(command_id)
+  return State.spinner_state[command_id]
+end
+
+---Create spinner driver for adapter
+---@param adapter Cmd.Config.ProgressNotifier.SpinnerAdapter Notification adapter
 ---@return Cmd.SpinnerDriver Configured spinner driver
-function U.spinner_driver(adapter)
+Spinner.create_driver = function(adapter)
   return {
     ---Start the spinner animation and initial notification
-    ---@param opts Cmd.Config.ProgressNotifier.PreExec Execution context and configuration
-    pre_exec = function(opts)
+    ---@param opts Cmd.Config.ProgressNotifier.Start Execution context and configuration
+    start = function(opts)
       local timer = uv.new_timer()
-      if timer then
-        opts.set_spinner_state(opts.command_id, {
-          timer = timer,
-          active = true,
-          msg = string.format("[#%s] running `%s`", opts.command_id, opts.args),
-          title = "cmd",
-          cmd = opts.args,
-        })
+      if not timer then
+        Utils.notify("Failed to create spinner timer", "ERROR")
+        return nil
       end
 
+      local msg = string.format("[#%d] running `%s`", opts.command_id, opts.args)
+
+      Spinner.set_state(opts.command_id, {
+        timer = timer,
+        active = true,
+        msg = msg,
+        title = "cmd.nvim",
+        cmd = opts.args,
+        start_time = os.time(),
+      })
+
+      local spinner_chars = State.config.progress_notifier.spinner_chars
       local idx = 1
-      local spinner_chars = opts.spinner_chars
+      local notify_id = adapter.start(msg, opts)
 
-      local notify_id = adapter.start(string.format("[#%s] running `%s`", opts.command_id, opts.args), opts)
+      timer:start(0, 150, function()
+        vim.schedule(function()
+          local state = Spinner.get_state(opts.command_id)
+          if not state or not state.active then
+            return
+          end
 
-      if timer then
-        timer:start(0, 150, function()
-          vim.schedule(function()
-            local st = opts.get_spinner_state(opts.command_id)
-            if not st or not st.active then
-              return
-            end
-
-            local msg = st.msg
-            if spinner_chars and #spinner_chars > 0 then
-              idx = (idx % #spinner_chars) + 1
-              msg = string.format("%s %s", spinner_chars[idx], msg)
-              opts.current_spinner_char = spinner_chars[idx]
-            end
-            adapter.update(notify_id, msg, opts)
-          end)
+          local spinner_msg = state.msg
+          if spinner_chars and #spinner_chars > 0 then
+            idx = (idx % #spinner_chars) + 1
+            spinner_msg = string.format("%s %s", spinner_chars[idx], state.msg)
+            opts.current_spinner_char = spinner_chars[idx]
+          end
+          adapter.update(notify_id, spinner_msg, opts)
         end)
-      end
+      end)
+
       return notify_id
     end,
 
     ---Stop spinner and show final execution result
-    ---@param opts Cmd.Config.ProgressNotifier.PostExec Post-execution context and results
-    post_exec = function(opts)
-      local st = opts.get_spinner_state(opts.command_id)
-      if not st or not st.active then
+    ---@param opts Cmd.Config.ProgressNotifier.Finish Post-execution context and results
+    stop = function(opts)
+      local state = Spinner.get_state(opts.command_id)
+      if not state or not state.active then
         return
       end
 
-      if st.timer and not st.timer:is_closing() then
-        st.timer:stop()
-        st.timer:close()
+      if state.timer and not state.timer:is_closing() then
+        state.timer:stop()
+        state.timer:close()
       end
-      opts.set_spinner_state(opts.command_id, nil)
+
+      Spinner.set_state(opts.command_id, nil)
 
       local icon = icon_map[opts.status] or " "
       local level = level_map[opts.status] or vim.log.levels.ERROR
-      local msg = string.format("%s [#%s] %s `%s`", icon, opts.command_id, opts.status, st.cmd)
+      local msg = string.format("%s [#%s] %s `%s`", icon, opts.command_id, opts.status, state.cmd)
 
-      ---@diagnostic disable-next-line: param-type-mismatch
       adapter.finish(opts.user_defined_notifier_id, msg, level, opts)
     end,
   }
 end
 
----Spinner adapter for snacks.nvim notification system.
----
----Uses notification IDs for updating progress messages and maintaining
----consistent notification state throughout command execution.
----@type Cmd.Config.ProgressNotifier.SpinnerAdapter
-U.spinner_adapters.snacks = {
-  start = function(msg, data)
-    H.notify(msg, "INFO", { id = string.format("cmd_progress_%s", data.command_id), title = "cmd" })
-    return nil -- snacks uses the id internally
-  end,
+-- Built-in spinner adapters
+Spinner.builtin_adapters = {
+  ---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
+  snacks = {
+    start = function(msg, ctx)
+      Utils.notify(msg, "INFO", { id = string.format("cmd_%d", ctx.command_id), title = "cmd.nvim" })
+      return nil
+    end,
+    update = function(_, msg, ctx)
+      Utils.notify(msg, "INFO", { id = string.format("cmd_%d", ctx.command_id), title = "cmd.nvim" })
+    end,
+    finish = function(_, msg, level, ctx)
+      Utils.notify(msg, level, { id = string.format("cmd_%d", ctx.command_id), title = "cmd.nvim" })
+    end,
+  },
 
-  update = function(_, msg, data)
-    H.notify(msg, "INFO", { id = string.format("cmd_progress_%s", data.command_id), title = "cmd" })
-  end,
+  ---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
+  mini = {
+    start = function(msg)
+      ---@diagnostic disable-next-line: redefined-local
+      local ok, mini_notify = pcall(require, "mini.notify")
+      return ok and mini_notify.add(msg, "INFO") or nil
+    end,
+    update = function(id, msg)
+      id = tonumber(id)
+      if not id then
+        return
+      end
+      ---@diagnostic disable-next-line: redefined-local
+      local ok, mini_notify = pcall(require, "mini.notify")
+      if ok then
+        local data = mini_notify.get(id)
+        if data then
+          data.msg = msg
+          mini_notify.update(id, data)
+        end
+      end
+    end,
+    finish = function(id, msg, level)
+      id = tonumber(id)
+      if not id then
+        return
+      end
+      ---@diagnostic disable-next-line: redefined-local
+      local ok, mini_notify = pcall(require, "mini.notify")
+      if ok then
+        local data = mini_notify.get(id)
+        if data then
+          data.msg = msg
+          data.level = level
+          mini_notify.update(id, data)
+          vim.defer_fn(function()
+            mini_notify.remove(id)
+          end, mini_notify.config.lsp_progress.duration_last)
+        end
+      end
+    end,
+  },
 
-  finish = function(_, msg, level, data)
-    H.notify(msg, level, { id = string.format("cmd_progress_%s", data.command_id), title = "cmd" })
-  end,
-}
-
----Spinner adapter for mini.notify notification system.
----
----Manages notification lifecycle using mini.notify's ID-based system
----for updating and removing notifications after completion.
----@type Cmd.Config.ProgressNotifier.SpinnerAdapter
-U.spinner_adapters.mini = {
-  start = function(msg)
-    ---@diagnostic disable-next-line: redefined-local
-    local ok, mini_notify = pcall(require, "mini.notify")
-    return ok and mini_notify.add(msg, "INFO", nil, {}) or nil
-  end,
-
-  update = function(id, msg)
-    id = tonumber(id)
-    if not id then
-      return
-    end
-    ---@diagnostic disable-next-line: redefined-local
-    local ok, mini_notify = pcall(require, "mini.notify")
-    if ok then
-      local data = mini_notify.get(id)
-      data.msg = msg
-      mini_notify.update(id, data)
-    end
-  end,
-
-  finish = function(id, msg, level)
-    id = tonumber(id)
-    if not id then
-      return
-    end
-    ---@diagnostic disable-next-line: redefined-local
-    local ok, mini_notify = pcall(require, "mini.notify")
-    if ok then
-      local data = mini_notify.get(id)
-      data.msg = msg
-      data.level = level
-      mini_notify.update(id, data)
-
-      vim.defer_fn(function()
-        mini_notify.remove(id)
-      end, mini_notify.config.lsp_progress.duration_last)
-    end
-  end,
-}
-
----Spinner adapter for fidget.nvim progress notification system.
----
----Uses fidget's key-based notification system with automatic TTL
----management for progress updates and final results.
----@type Cmd.Config.ProgressNotifier.SpinnerAdapter
-U.spinner_adapters.fidget = {
-  start = function(msg, data)
-    ---@diagnostic disable-next-line: redefined-local
-    local ok, fidget = pcall(require, "fidget")
-    return ok
-        and fidget.notification.notify(msg, "INFO", {
-          key = string.format("cmd_progress_%s", data.command_id),
-          annote = "cmd",
-          ttl = Cmd.config.timeout,
+  ---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
+  fidget = {
+    start = function(msg, ctx)
+      ---@diagnostic disable-next-line: redefined-local
+      local ok, fidget = pcall(require, "fidget")
+      return ok
+          and fidget.notification.notify(msg, "INFO", {
+            key = string.format("cmd_%d", ctx.command_id),
+            annote = "cmd.nvim",
+            ttl = State.config.timeout,
+          })
+        or nil
+    end,
+    update = function(_, msg, ctx)
+      ---@diagnostic disable-next-line: redefined-local
+      local ok, fidget = pcall(require, "fidget")
+      if ok then
+        fidget.notification.notify(msg, "INFO", {
+          key = string.format("cmd_%d", ctx.command_id),
+          annote = "cmd.nvim",
+          update_only = true,
         })
-      or nil
-  end,
-
-  update = function(_, msg, data)
-    ---@diagnostic disable-next-line: redefined-local
-    local ok, fidget = pcall(require, "fidget")
-    if ok then
-      fidget.notification.notify(msg, "INFO", {
-        key = string.format("cmd_progress_%s", data.command_id),
-        annote = "cmd",
-        update_only = true,
-      })
-    end
-  end,
-
-  finish = function(_, msg, level, data)
-    ---@diagnostic disable-next-line: redefined-local
-    local ok, fidget = pcall(require, "fidget")
-    if ok then
-      fidget.notification.notify(msg, level, {
-        key = string.format("cmd_progress_%s", data.command_id),
-        annote = "cmd",
-        update_only = true,
-        ttl = 0,
-      })
-    end
-  end,
+      end
+    end,
+    finish = function(_, msg, level, ctx)
+      ---@diagnostic disable-next-line: redefined-local
+      local ok, fidget = pcall(require, "fidget")
+      if ok then
+        fidget.notification.notify(msg, level, {
+          key = string.format("cmd_%d", ctx.command_id),
+          annote = "cmd.nvim",
+          update_only = true,
+          ttl = 0,
+        })
+      end
+    end,
+  },
 }
 
----Display command output in a scratch buffer with vertical split.
----
----Creates a read-only buffer with proper filetype and buffer options
----for displaying command results. Supports post-processing hooks.
----
----@param lines string[] Output lines to display in buffer
----@param title string Buffer name/title
+-- ============================================================================
+-- SHELL COMPLETION
+-- ============================================================================
+
+---@private
+---@class Cmd.Completion
+local Completion = {}
+
+---Write temporary completion script for shell
+---@param shell string Shell path
+---@return string? Script path or nil on failure
+Completion.write_temp_script = function(shell)
+  if State.temp_script_cache[shell] then
+    return State.temp_script_cache[shell]
+  end
+
+  local path = vim.fn.tempname() .. ".sh"
+  local content = ""
+
+  -- TODO: fish is tested and working, but zsh and bash are not, come back later
+  -- or somebody seeing this, please help me out
+  if shell:find("fish") then
+    content = [[
+#!/usr/bin/env fish
+set -l input "$argv"
+complete -C "$input"
+]]
+  elseif shell:find("zsh") then
+    content = [[
+#!/usr/bin/env zsh
+autoload -U compinit && compinit
+compdef _command_names cmd
+_cmd() { _command_names }
+compdef _cmd cmd
+]]
+  else -- bash
+    content = [[
+#!/usr/bin/env bash
+complete -F _command_names cmd 2>/dev/null || complete -c cmd
+]]
+  end
+
+  local fd = uv.fs_open(path, "w", 384) -- 0600 permissions
+  if not fd then
+    return nil
+  end
+
+  uv.fs_write(fd, content)
+  uv.fs_close(fd)
+
+  State.temp_script_cache[shell] = path
+  return path
+end
+
+---Get shell completion candidates
+---@param executable? string Executable name
+---@param lead_args string Leading arguments
+---@param cmd_line string Full command line
+---@param cursor_pos integer Cursor position
+---@return string[] Completion candidates
+Completion.get_candidates = function(executable, lead_args, cmd_line, cursor_pos)
+  if not State.config.completion.enabled then
+    return {}
+  end
+
+  Utils.ensure_cwd()
+
+  vim.notify(cmd_line)
+
+  -- Handle root Cmd call
+  if not executable then
+    local cmd_line_table = vim.split(cmd_line, " ")
+    table.remove(cmd_line_table, 1)
+
+    executable = cmd_line_table[1]
+
+    cmd_line = table.concat(cmd_line_table, " ")
+  end
+
+  local shell = State.config.completion.shell
+
+  local script_path = Completion.write_temp_script(shell)
+  if not script_path then
+    Utils.notify("Failed to create completion script", "ERROR")
+    return {}
+  end
+
+  -- Build completion line
+  local full_line = cmd_line:sub(1, cursor_pos)
+
+  local full_line_table = vim.split(full_line, " ")
+  full_line_table[1] = executable
+  full_line = table.concat(full_line_table, " ")
+
+  local result = vim
+    .system({ shell, script_path, full_line }, {
+      text = true,
+      cwd = State.cwd,
+      timeout = 5000,
+    })
+    :wait()
+
+  if result.code ~= 0 then
+    return {}
+  end
+
+  local lines = vim.split(result.stdout, "\n")
+  local completions = {}
+
+  for _, line in ipairs(lines) do
+    local cleaned = Utils.sanitize_line(line):gsub("\t.*", "")
+    if cleaned ~= "" then
+      table.insert(completions, cleaned)
+    end
+  end
+
+  return completions
+end
+
+-- ============================================================================
+-- UI COMPONENTS
+-- ============================================================================
+
+---@private
+---@class Cmd.UI
+local UI = {}
+
+---Show command output in buffer
+---@param lines string[] Output lines
+---@param title string Buffer title
 ---@param post_hook? fun(buf: integer, lines: string[]) Optional callback after buffer creation
----@return nil
-function U.show_buffer(lines, title, post_hook)
+UI.show_buffer = function(lines, title, post_hook)
+  -- Clean up existing buffer
   local old_buf = vim.fn.bufnr(title)
   if old_buf ~= -1 then
     vim.api.nvim_buf_delete(old_buf, { force = true })
@@ -1000,6 +1140,8 @@ function U.show_buffer(lines, title, post_hook)
   vim.schedule(function()
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+    -- Configure buffer
     vim.bo[buf].filetype = "cmd"
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "wipe"
@@ -1007,8 +1149,14 @@ function U.show_buffer(lines, title, post_hook)
     vim.bo[buf].modifiable = false
     vim.bo[buf].readonly = true
     vim.bo[buf].buflisted = false
+
     vim.api.nvim_buf_set_name(buf, title)
     vim.cmd("vsplit | buffer " .. buf)
+
+    -- Add close keymap
+    vim.keymap.set("n", "q", function()
+      vim.cmd("close")
+    end, { buffer = buf, nowait = true })
 
     if post_hook then
       post_hook(buf, lines)
@@ -1016,17 +1164,12 @@ function U.show_buffer(lines, title, post_hook)
   end)
 end
 
----Execute command in an interactive terminal buffer.
----
----Creates a terminal buffer in a horizontal split with proper job handling,
----exit code processing, and command history tracking.
----
----@param cmd string[] Command and arguments array
----@param title string Terminal buffer title
----@param command_id integer Unique command identifier
----@return nil
-function U.show_terminal(cmd, title, command_id)
-  C.track_cmd({
+---Execute command in terminal
+---@param cmd string[] Command arguments
+---@param title string Terminal title
+---@param command_id integer Command ID
+UI.show_terminal = function(cmd, title, command_id)
+  History.track({
     id = command_id,
     cmd = cmd,
     type = "interactive",
@@ -1038,6 +1181,7 @@ function U.show_terminal(cmd, title, command_id)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].swapfile = false
   vim.bo[buf].buflisted = false
+
   vim.keymap.set("n", "q", function()
     vim.cmd("close")
   end, { buffer = buf, nowait = true })
@@ -1045,139 +1189,215 @@ function U.show_terminal(cmd, title, command_id)
   vim.api.nvim_buf_set_name(buf, title)
   vim.cmd("botright split | buffer " .. buf)
 
-  local env = H.get_cmd_env(cmd[1])
-
-  if env then
-    local env_copy = vim.deepcopy(env)
-    table.insert(env_copy, 1, "env")
-
-    cmd = vim.list_extend(env_copy, cmd)
-  else
-    cmd = { unpack(cmd) }
+  -- Prepare command with environment
+  local env_vars = Utils.get_cmd_env(cmd[1])
+  local final_cmd = vim.deepcopy(cmd)
+  if env_vars then
+    final_cmd = vim.list_extend({ "env" }, vim.list_extend(env_vars, cmd))
   end
 
-  local user_defined_notifier_id = H.stream_or_notify("pre", "running", command_id, cmd)
+  -- Start spinner if adapter available
+  local notify_id
+  local adapter = State.config.progress_notifier.adapter
+  if adapter then
+    local driver = Spinner.create_driver(adapter)
+    notify_id = driver.start({
+      command_id = command_id,
+      args_raw = cmd,
+      args = table.concat(cmd, " "),
+    })
+  else
+    Utils.notify(string.format("[#%d] running `%s`", command_id, table.concat(cmd, " ")), "INFO")
+  end
 
-  ---@type Cmd.CommandStatus
-  local status
-
-  vim.fn.jobstart(cmd, {
-    cwd = S.cwd,
+  vim.fn.jobstart(final_cmd, {
+    cwd = State.cwd,
     term = true,
-    on_exit = function(_, code)
-      U.refresh_ui()
+    on_exit = function(_, exit_code)
+      UI.refresh()
 
-      if code == 0 then
-        status = "success"
-        C.track_cmd({
-          id = command_id,
+      local status = exit_code == 0 and "success" or (exit_code == 130 and "cancelled" or "failed")
+
+      History.track({
+        id = command_id,
+        status = status,
+        exit_code = exit_code,
+      })
+
+      -- Stop spinner or show notification
+      if adapter then
+        local driver = Spinner.create_driver(adapter)
+        driver.stop({
+          command_id = command_id,
+          args_raw = cmd,
+          args = table.concat(cmd, " "),
           status = status,
+          user_defined_notifier_id = notify_id,
         })
+      else
+        local icon = icon_map[status] or " "
+        local level = level_map[status] or vim.log.levels.ERROR
 
-        H.stream_or_notify("post", status, command_id, cmd, user_defined_notifier_id)
-        return
+        local msg = string.format("%s [#%s] %s `%s`", icon, command_id, status, table.concat(cmd, " "))
+        Utils.notify(msg, level)
       end
 
-      vim.schedule(function()
-        -- 130 = Interrupted (Ctrl+C)
-        if code == 130 then
-          status = "cancelled"
-          C.track_cmd({
-            id = command_id,
-            status = status,
-          })
+      -- Handle non-success cases
+      if status == "cancelled" then
+        vim.schedule(function()
           pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        end)
+      elseif status == "failed" then
+        vim.schedule(function()
+          local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+          lines = Utils.trim_empty_lines(lines)
 
-          H.stream_or_notify("post", status, command_id, cmd, user_defined_notifier_id)
+          local preview = #lines <= 6 and table.concat(lines, "\n")
+            or table.concat(vim.list_slice(lines, 1, 3), "\n")
+              .. "\n...omitted...\n"
+              .. table.concat(vim.list_slice(lines, #lines - 2, #lines), "\n")
 
-          return
-        end
+          Utils.notify(string.format("`%s` exited %d\n%s", table.concat(cmd, " "), exit_code, preview), "ERROR")
 
-        local cmd_string = table.concat(cmd, " ")
-
-        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        lines = H.trim_empty_lines(lines)
-
-        local preview = (#lines <= 6) and table.concat(lines, "\n")
-          or table.concat(vim.list_slice(lines, 1, 3), "\n")
-            .. "\n...omitted...\n"
-            .. table.concat(vim.list_slice(lines, #lines - 2, #lines), "\n")
-
-        H.notify(string.format("`%s` exited %d\n%s", cmd_string, code, preview), "ERROR")
-
-        status = "failed"
-
-        C.track_cmd({
-          id = command_id,
-          status = status,
-        })
-        pcall(vim.api.nvim_buf_delete, buf, { force = true })
-
-        H.stream_or_notify("post", status, command_id, cmd, user_defined_notifier_id)
-      end)
+          pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        end)
+      end
     end,
   })
 
   vim.cmd("startinsert")
 end
 
----Refresh the user interface to reflect any changes.
----
----Triggers redraw and file change detection to ensure UI consistency
----after command execution or other state changes.
----
----@return nil
-function U.refresh_ui()
+---Show command history in floating window
+UI.show_history = function()
+  local history = History.get_all()
+  if #history == 0 then
+    Utils.notify("No command history", "INFO")
+    return
+  end
+
+  local width = math.floor(vim.o.columns * 0.8)
+  local height = math.floor(vim.o.lines * 0.6)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = (vim.o.columns - width) / 2,
+    row = (vim.o.lines - height) / 2,
+    style = "minimal",
+    border = "rounded",
+    title = "Command History",
+  })
+
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].swapfile = false
+  vim.bo[buf].modifiable = true
+
+  vim.wo[win].winhighlight = string.format(
+    "NormalFloat:%s,FloatBorder:%s,FloatTitle:%s",
+    "CmdHistoryNormal",
+    "CmdHistoryBorder",
+    "CmdHistoryTitle"
+  )
+
+  -- Close keymaps
+  local close = function()
+    pcall(vim.api.nvim_win_close, win, true)
+  end
+
+  for _, key in ipairs({ "<Esc>", "q", "<C-c>" }) do
+    vim.keymap.set("n", key, close, { buffer = buf, nowait = true })
+  end
+
+  vim.api.nvim_create_autocmd("WinLeave", {
+    buffer = buf,
+    once = true,
+    callback = close,
+  })
+
+  -- Format history lines
+  ---@type string[]
+  local lines = {}
+
+  ---@type Cmd.FormattedLineOpts[][]
+  local formatted_raw_data = {}
+
+  local formatter = State.config.history_formatter_fn or History.default_formatter
+
+  if type(formatter) ~= "function" then
+    error("`opts.history_formatter_fn` must be a function")
+    return
+  end
+
+  for i = #history, 1, -1 do
+    local entry = history[i]
+
+    local formatted = formatter({
+      history = entry,
+    })
+
+    local formatted_line_data = Utils.parse_format_fn_result(formatted)
+    local formatted_line = Utils.convert_parsed_format_result_to_string(formatted_line_data)
+
+    table.insert(lines, formatted_line)
+    table.insert(formatted_raw_data, formatted_line_data)
+  end
+
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+
+  local ns = vim.api.nvim_create_namespace("cmd_history")
+  Utils.setup_virtual_text_hls(ns, buf, formatted_raw_data)
+
+  vim.api.nvim_set_current_win(win)
+end
+
+---Refresh UI to reflect changes
+UI.refresh = function()
   vim.schedule(function()
     vim.cmd("redraw!")
     vim.cmd("checktime")
   end)
 end
 
-------------------------------------------------------------------
--- Core
-------------------------------------------------------------------
+-- ============================================================================
+-- COMMAND EXECUTION ENGINE
+-- ============================================================================
 
----@class Cmd.RunResult
----Result of a command execution, returned only for synchronous operations.
----@field code integer Exit code of the command (0 for success)
----@field out string Standard output content
----@field err string Standard error content
+---@private
+---@class Cmd.Executor
+local Executor = {}
 
----Execute a CLI command with async handling, timeout, and cancellation support.
----
----Spawns a process using libuv with proper stream handling, timeout management,
----and signal-based cancellation. Supports both sync and async execution patterns.
----
----@param cmd string[] Command and arguments to execute
----@param command_id integer Unique identifier for tracking
----@param on_done fun(code: integer, out: string, err: string, is_cancelled?: boolean) Completion callback
----@param timeout? integer Timeout in milliseconds (default: config.timeout)
----@return Cmd.RunResult? result Only returned for synchronous execution
-function C.exec_cli(cmd, command_id, on_done, timeout)
-  timeout = timeout or Cmd.config.timeout
+---Execute CLI command asynchronously
+---@param cmd string[] Command arguments
+---@param command_id integer Command ID
+---@param on_done function Completion callback
+---@param timeout? integer Timeout in milliseconds
+Executor.exec_async = function(cmd, command_id, on_done, timeout)
+  timeout = timeout or State.config.timeout
+  Utils.ensure_cwd()
 
-  H.ensure_cwd()
-
-  -- Create a coroutine
   local stdout, stderr = uv.new_pipe(false), uv.new_pipe(false)
   local out_chunks, err_chunks = {}, {}
   local done = false
-  ---@type uv.uv_timer_t|nil
   local timer
 
-  local function finish(code, out, err)
+  local function finish(code, out, err, is_cancelled)
     if done then
       return
     end
     done = true
 
-    -- stop & close the timer so it can never fire
+    -- Cleanup timer
     if timer and not timer:is_closing() then
       timer:stop()
       timer:close()
     end
 
+    -- Cleanup pipes
     if stdout and not stdout:is_closing() then
       stdout:close()
     end
@@ -1185,18 +1405,21 @@ function C.exec_cli(cmd, command_id, on_done, timeout)
       stderr:close()
     end
 
-    local is_cancelled = code == 130
-    local final_out = out or ""
-    local final_err = err or ""
+    -- Clear job from history
+    local history_entry = History.get(command_id)
+    if history_entry then
+      history_entry.job = nil
+    end
 
     vim.schedule(function()
-      on_done(code, final_out, final_err, is_cancelled)
+      on_done(code, out or "", err or "", is_cancelled)
     end)
   end
 
+  -- Spawn process
   local process = uv.spawn(cmd[1], {
     args = vim.list_slice(cmd, 2),
-    cwd = S.cwd,
+    cwd = State.cwd,
     stdio = { nil, stdout, stderr },
     env = nil,
     uid = nil,
@@ -1205,8 +1428,7 @@ function C.exec_cli(cmd, command_id, on_done, timeout)
     detached = nil,
     hide = nil,
   }, function(code, signal)
-    S.command_history[command_id].job = nil
-
+    -- Handle signals
     if signal == 2 then
       code = 130
     end -- SIGINT
@@ -1217,24 +1439,26 @@ function C.exec_cli(cmd, command_id, on_done, timeout)
       code = 137
     end -- SIGKILL
 
-    finish(code, H.stream_tostring(out_chunks), H.stream_tostring(err_chunks))
+    finish(code, Utils.stream_to_string(out_chunks), Utils.stream_to_string(err_chunks), code == 130)
   end)
 
   if not process then
-    on_done(127, "", string.format("failed to spawn process: %s", cmd[1]))
+    on_done(127, "", string.format("Failed to spawn process: %s", cmd[1]), false)
     return
   end
 
-  S.command_history[command_id].job = process
+  -- Store process handle
+  History.track({ id = command_id, job = process })
 
+  -- Setup stream reading
   if stdout then
-    H.read_stream(stdout, out_chunks)
+    Utils.read_stream(stdout, out_chunks)
   end
   if stderr then
-    H.read_stream(stderr, err_chunks)
+    Utils.read_stream(stderr, err_chunks)
   end
 
-  -- Set up timeout
+  -- Setup timeout
   if timeout and timeout > 0 then
     timer = uv.new_timer()
     if timer then
@@ -1248,611 +1472,401 @@ function C.exec_cli(cmd, command_id, on_done, timeout)
           end, 1000)
         end
         timer:close()
-        finish(124, "", string.format("process killed after timeout: %s", cmd[1]))
+        finish(124, "", string.format("Command timed out after %dms: %s", timeout, cmd[1]), false)
       end)
     end
   end
 end
 
----Cancel a running command with graceful termination and fallback to force kill.
----
----Attempts graceful termination with SIGINT, then escalates to SIGKILL if needed.
----Updates command status and cleans up process resources.
----
----@param job uv.uv_process_t|nil Process handle to cancel
----@param command_id number Command identifier for status tracking
----@return nil
-function C.cancel_with_fallback(job, command_id)
-  if not job or job:is_closing() then
-    return
+---Cancel running command with graceful shutdown
+---@param command_id integer Command ID
+Executor.cancel = function(command_id)
+  local entry = History.get(command_id)
+  if not entry or not entry.job or entry.job:is_closing() then
+    return false, "No running command to cancel"
   end
 
-  job:kill("sigint")
+  entry.job:kill("sigint")
+  -- Escalate to SIGKILL after 1 second
   vim.defer_fn(function()
-    if job and not job:is_closing() then
-      job:kill("sigkill")
+    if entry.job and not entry.job:is_closing() then
+      entry.job:kill("sigkill")
     end
-  end, 1000) -- give 1 second to terminate cleanly
+  end, 1000)
 
-  C.track_cmd({
-    id = command_id,
-    status = "cancelled",
-  })
+  History.track({ id = command_id, status = "cancelled" })
+  return true, "Command cancelled"
 end
 
----Cancel running commands by ID or all running commands.
----
----@param command_id number|nil Specific command ID to cancel, or nil for last command
----@param all boolean If true, cancel all running commands
----@return nil
-local function cancel_cmd(command_id, all)
-  if all then
-    local count = 0
-    for id, entry in pairs(S.command_history) do
-      if entry.job and not entry.job:is_closing() then
-        C.cancel_with_fallback(entry.job, entry.id)
-        S.command_history[id].job = nil
-        count = count + 1
-      end
+---Check if executable should force terminal mode
+---@param executable string Executable name
+---@param args string[] Command arguments
+---@return boolean Should force terminal
+Executor.should_force_terminal = function(executable, args)
+  local patterns = State.config.force_terminal[executable]
+  if not patterns or vim.tbl_isempty(patterns) then
+    return false
+  end
+
+  local args_string = table.concat(args, " ")
+  for _, pattern in ipairs(patterns) do
+    if args_string:find(pattern, 1, true) then
+      return true
     end
-    H.notify(string.format("Cancelled %d running commands", count), "WARN")
-    return
   end
 
-  local id = command_id or #S.command_history
-  local job = S.command_history[id].job
-
-  if job and not job:is_closing() then
-    C.cancel_with_fallback(job, id)
-    S.command_history[id].job = nil
-  else
-    H.notify("No running command to cancel", "WARN")
-  end
+  return false
 end
 
----Get shell completion candidates for a command using temporary completion scripts.
----
----Creates shell-specific completion scripts and executes them to get completion
----candidates. Supports bash, zsh, and fish shells with proper completion loading.
----
----@param executable? string Executable name for completion (nil for root Cmd calls)
----@param lead_args string Leading arguments before cursor
----@param cmd_line string Complete command line being completed
----@param cursor_pos integer Current cursor position in command line
----@return string[] Array of completion candidates
-function C.cached_shell_complete(executable, lead_args, cmd_line, cursor_pos)
-  if Cmd.config.completion.enabled == false then
-    return {}
-  end
-
-  H.ensure_cwd()
-
-  --- this should be the root `Cmd` call rather than user defined commands
-  --- we can then set the right executable and reconstruct the cmd_line to let it work normally
-  if not executable then
-    local cmd_line_table = vim.split(cmd_line, " ")
-    table.remove(cmd_line_table, 1)
-
-    executable = cmd_line_table[1]
-
-    cmd_line = table.concat(cmd_line_table, " ")
-  end
-
-  local shell = Cmd.config.completion.shell or vim.env.SHELL or "/bin/bash"
-
-  -- TODO:: Need to add support for zsh and bash, but not sure how
-  -- for now, let's just throw error if it's not fish... Sorry! and please help!
-  if not shell:find("fish") then
-    H.notify("Sorry, shell completion is only supported for fish at this moment.", "ERROR")
-    H.notify("As I mainly daily driving fish shell, please help to make bash and zsh work ~.", "ERROR")
-    return {}
-  end
-
-  local script_path = H.write_temp_script(shell)
-  if not script_path then
-    H.notify("Failed to create temp script", "ERROR")
-    return {}
-  end
-
-  -- Build the exact line the shell would see
-  local full_line = cmd_line:sub(1, cursor_pos)
-
-  local full_line_table = vim.split(full_line, " ")
-  full_line_table[1] = executable
-  full_line = table.concat(full_line_table, " ")
-
-  local result = vim
-    .system({ shell, script_path, full_line }, {
-      text = true,
-      cwd = S.cwd,
-    })
-    :wait()
-
-  if result.code ~= 0 then
-    H.notify("Shell completion failed with exit code: " .. result.code, "WARN")
-    return {}
-  end
-
-  local lines = vim.split(result.stdout, "\n")
-
-  local completions = H.sanitize_file_output(lines)
-
-  return completions
-end
-
----Execute a command in terminal (interactive) or buffer (normal) mode.
----
----Handles executable validation, command history tracking, environment setup,
----and output display. Supports both terminal and buffer execution modes.
----
----@param args string[] Command arguments array
----@param bang boolean If true, force terminal execution
----@return nil
-function C.run_cmd(args, bang)
+---Run command in appropriate mode
+---@param args string[] Command arguments
+---@param force_terminal? boolean Force terminal execution
+Executor.run = function(args, force_terminal)
   local executable = args[1]
+
+  -- Validate executable
   if vim.fn.executable(executable) == 0 then
-    H.notify(executable .. " is not executable", "WARN")
+    Utils.notify(string.format("%s is not executable", executable), "ERROR")
     return
   end
 
-  local command_id = #S.command_history + 1
+  local command_id = History.get_next_id()
 
-  if bang then
-    U.show_terminal(args, "cmd://" .. table.concat(args, " "), command_id)
+  -- Check if should force terminal
+  if not force_terminal then
+    force_terminal = Executor.should_force_terminal(executable, args)
+  end
+
+  if force_terminal then
+    UI.show_terminal(args, "cmd://" .. table.concat(args, " "), command_id)
   else
-    C.track_cmd({
+    -- Run in buffer mode
+    History.track({
       id = command_id,
       cmd = args,
       type = "normal",
       status = "running",
     })
 
-    local user_defined_notifier_id = H.stream_or_notify("pre", "running", command_id, args)
+    -- Start spinner/notification
+    local notify_id
+    local adapter = State.config.progress_notifier.adapter
+    if adapter then
+      local driver = Spinner.create_driver(adapter)
+      notify_id = driver.start({
+        command_id = command_id,
+        args_raw = args,
+        args = table.concat(args, " "),
+      })
+    else
+      Utils.notify(string.format("[#%d] running `%s`", command_id, table.concat(args, " ")), "INFO")
+    end
 
-    C.exec_cli(args, command_id, function(code, out, err, is_cancelled)
-      ---@type Cmd.CommandStatus
-      local status
+    Executor.exec_async(args, command_id, function(code, out, err, is_cancelled)
+      local status = is_cancelled and "cancelled" or (code == 0 and "success" or "failed")
 
-      if is_cancelled then
-        status = "cancelled"
+      History.track({
+        id = command_id,
+        status = status,
+        exit_code = code,
+      })
+
+      -- Stop spinner or show notification
+      if adapter then
+        local driver = Spinner.create_driver(adapter)
+        driver.stop({
+          command_id = command_id,
+          args_raw = args,
+          args = table.concat(args, " "),
+          status = status,
+          user_defined_notifier_id = notify_id,
+        })
       else
-        status = code == 0 and "success" or "failed"
+        local status_icons = { success = "✓", failed = "✗", cancelled = "⚠" }
+        local icon = status_icons[status] or "?"
+        local level = status == "success" and "INFO" or (status == "cancelled" and "WARN" or "ERROR")
+        Utils.notify(string.format("%s [#%d] %s `%s`", icon, command_id, status, table.concat(args, " ")), level)
+      end
 
-        local text = table.concat(H.trim_empty_lines({ err, out }), "\n")
+      if not is_cancelled then
+        local combined_output = table.concat(Utils.trim_empty_lines({ err, out }), "\n")
+        local lines = vim.split(combined_output, "\n")
+        lines = Utils.trim_empty_lines(lines)
 
-        local lines = vim.split(text, "\n")
-        lines = H.trim_empty_lines(lines)
-
+        -- Strip ANSI escape codes
         for i, line in ipairs(lines) do
-          --- Strip ANSI escape codes
           lines[i] = line:gsub("\27%[[0-9;]*m", "")
         end
 
         if #lines > 0 then
-          U.show_buffer(lines, "cmd://" .. table.concat(args, " ") .. "-" .. command_id)
+          UI.show_buffer(lines, "cmd://" .. table.concat(args, " ") .. "-" .. command_id)
         else
-          H.notify("Completed but no output lines", "INFO")
+          Utils.notify("Command completed with no output", "INFO")
         end
 
         if status == "success" then
-          U.refresh_ui()
+          UI.refresh()
         end
       end
-
-      C.track_cmd({
-        id = command_id,
-        status = status,
-      })
-
-      H.stream_or_notify("post", status, command_id, args, user_defined_notifier_id)
     end)
   end
 end
 
----Track a command entry in the execution history.
----
----Updates or creates a command history entry with execution details,
----status updates, and timestamp information.
----
----@param opts Cmd.CommandHistory Command history data to track
----@return nil
-function C.track_cmd(opts)
-  opts = vim.tbl_deep_extend("force", S.command_history[opts.id] or {}, opts)
+-- ============================================================================
+-- USER COMMANDS SETUP
+-- ============================================================================
 
-  opts.timestamp = os.time()
+---@private
+---@class Cmd.Commands
+local Commands = {}
 
-  S.command_history[opts.id] = opts
+---Setup all user commands
+Commands.setup = function()
+  Commands.setup_main_command()
+  Commands.setup_rerun_command()
+  Commands.setup_cancel_command()
+  Commands.setup_history_command()
+  Commands.setup_auto_commands()
 end
 
-------------------------------------------------------------------
--- Public Interface
-------------------------------------------------------------------
-
----@tag Cmd.config
-
----@type Cmd.Config
----Module configuration with all available options and defaults.
-Cmd.config = {}
-
----@class Cmd.Config.Completion
----Configuration for shell completion functionality.
----@field enabled? boolean Whether to enable shell completion (default: false)
----@field shell? string Shell executable to use for completion (default: $SHELL or "/bin/sh")
----@field prompt_pattern_to_remove? string Regex pattern to remove from completion output
-
----@class Cmd.Config.ProgressNotifier.PreExec
----Context passed to spinner adapter before command execution.
----@field command_id integer Unique command identifier
----@field args_raw string[] Original command arguments array
----@field args string Concatenated command string
----@field set_spinner_state fun(command_id: integer, opts: Cmd.Spinner|nil) Set spinner state
----@field get_spinner_state fun(command_id: integer): Cmd.Spinner|nil Get spinner state
----@field spinner_chars string[] Array of spinner animation characters
----@field current_spinner_char? string Currently displayed spinner character
-
----@class Cmd.Config.ProgressNotifier.PostExec
----Context passed to spinner adapter after command execution.
----@field command_id integer Unique command identifier
----@field args_raw string[] Original command arguments array
----@field args string Concatenated command string
----@field set_spinner_state fun(command_id: integer, opts: Cmd.Spinner|nil) Set spinner state
----@field get_spinner_state fun(command_id: integer): Cmd.Spinner|nil Get spinner state
----@field status Cmd.CommandStatus Final command execution status
----@field user_defined_notifier_id? string|integer|number|nil Adapter-specific notification ID
-
----@class Cmd.Config.ProgressNotifier
----Configuration for async command notifications and progress indicators.
----@field spinner_chars? string[] Characters for spinner animation (default: braille patterns)
----@field adapter? Cmd.Config.ProgressNotifier.SpinnerAdapter Custom notification adapter
-
----@class Cmd.Config.ProgressNotifier.SpinnerAdapter
----Interface for custom notification adapters to handle progress display.
----@field start fun(msg: string, data: Cmd.Config.ProgressNotifier.PreExec): string|integer|nil Initialize progress notification
----@field update fun(notify_id: string|integer|number|nil, msg: string, data: Cmd.Config.ProgressNotifier.PreExec) Update progress message
----@field finish fun(notify_id: string, msg: string, level: Cmd.LogLevel, data: Cmd.Config.ProgressNotifier.PostExec) Show final result
-
----@class Cmd.Config
----Main configuration table for the Cmd plugin.
----@field force_terminal? table<string, string[]> Patterns that force terminal execution per executable
----@field create_usercmd? table<string, string> Auto-create user commands for executables
----@field env? table<string, string[]> Environment variables per executable
----@field timeout? integer Default command timeout in milliseconds (default: 30000)
----@field completion? Cmd.Config.Completion Shell completion configuration
----@field progress_notifier? Cmd.Config.ProgressNotifier Progress notification configuration
----@field history_formatter_fn? fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Formatter function for history display
-
----@tag Cmd.defaults
-
----Default configuration values for all plugin options.
----@type Cmd.Config
-Cmd.defaults = {
-  force_terminal = {},
-  create_usercmd = {},
-  env = {},
-  timeout = 30000,
-  completion = {
-    enabled = false,
-    shell = vim.env.SHELL or "/bin/sh",
-  },
-  progress_notifier = {
-    spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
-    adapter = nil,
-  },
-  history_formatter_fn = U.default_history_formatter,
-}
-
----Create user commands for configured executables if they don't already exist.
----
----Checks if executables are available and user commands don't exist,
----then creates them with proper completion and terminal force detection.
----
----@return nil
-local function create_usercmd_if_not_exists()
-  local existing_cmds = vim.api.nvim_get_commands({})
-  for executable, cmd_name in pairs(Cmd.config.create_usercmd) do
-    if vim.fn.executable(executable) == 1 and not existing_cmds[cmd_name] then
-      vim.api.nvim_create_user_command(cmd_name, function(opts)
-        local fargs = vim.deepcopy(opts.fargs)
-
-        -- to support expanding the args like %
-        for i, arg in ipairs(fargs) do
-          fargs[i] = vim.fn.expand(arg)
-        end
-
-        local args = { executable, unpack(fargs) }
-        local bang = opts.bang
-
-        local force_terminal_executable = Cmd.config.force_terminal[executable] or {}
-
-        if not vim.tbl_isempty(force_terminal_executable) then
-          for _, value in ipairs(force_terminal_executable) do
-            local args_string = table.concat(args, " ")
-            local matched = string.find(args_string, value, 1, true) ~= nil
-
-            if matched == true then
-              bang = true
-              break
-            end
-          end
-        end
-
-        C.run_cmd(args, bang)
-      end, {
-        nargs = "*",
-        bang = true,
-        complete = function(...)
-          return C.cached_shell_complete(executable, ...)
-        end,
-        desc = "Auto-generated command for " .. executable,
-      })
-    else
-      H.notify(("%s is not executable or already exists"):format(executable), "WARN")
-    end
-  end
-end
-
----Set up all user commands for the plugin.
----
----Creates the main :Cmd command and related commands like :CmdRerun,
----:CmdCancel, and :CmdHistory with appropriate completion and documentation.
----
----@return nil
-local function setup_usercmds()
+---Setup main :Cmd command
+Commands.setup_main_command = function()
   vim.api.nvim_create_user_command("Cmd", function(opts)
-    local bang = opts.bang or false
     local args = vim.deepcopy(opts.fargs)
 
-    -- to support expanding the args like %
+    -- Expand arguments (e.g., % to current file)
     for i, arg in ipairs(args) do
       args[i] = vim.fn.expand(arg)
     end
 
-    if #args < 1 then
-      H.notify("No arguments provided", "WARN")
+    if #args == 0 then
+      Utils.notify("No arguments provided", "WARN")
       return
     end
 
-    local executable = args[1]
-
-    if vim.fn.executable(executable) == 0 then
-      H.notify(("%s is not executable"):format(executable), "WARN")
-      return
-    end
-
-    local force_terminal_executable = Cmd.config.force_terminal[executable] or {}
-
-    if not vim.tbl_isempty(force_terminal_executable) then
-      for _, value in pairs(force_terminal_executable) do
-        local args_string = table.concat(args, " ")
-        local matched = string.find(args_string, value, 1, true) ~= nil
-
-        if matched == true then
-          bang = true
-          break
-        end
-      end
-    end
-
-    C.run_cmd(args, bang)
+    Executor.run(args, opts.bang)
   end, {
     nargs = "*",
     bang = true,
     complete = function(...)
-      return C.cached_shell_complete(nil, ...)
+      return Completion.get_candidates(nil, ...)
     end,
-    desc = "Run CLI command (add ! to run in terminal, add !! to rerun last command in terminal)",
+    desc = "Execute CLI command (! for terminal mode)",
   })
+end
 
+---Setup :CmdRerun command
+Commands.setup_rerun_command = function()
   vim.api.nvim_create_user_command("CmdRerun", function(opts)
-    local bang = opts.bang or false
-    local id = tonumber(opts.args) or #S.command_history
-    local command_entry = S.command_history[id]
+    local id = tonumber(opts.args) or #State.command_history
+    local entry = History.get(id)
 
-    if not command_entry then
-      H.notify("No command history", "WARN")
+    if not entry or not entry.cmd then
+      Utils.notify("No command found to rerun", "WARN")
       return
     end
 
-    local args = command_entry.cmd
-
-    if not args then
-      H.notify("No args to rerun", "WARN")
-      return
-    end
-
-    local executable = args[1]
-
-    local force_terminal_executable = Cmd.config.force_terminal[executable] or {}
-
-    if not vim.tbl_isempty(force_terminal_executable) then
-      for _, value in pairs(force_terminal_executable) do
-        local args_string = table.concat(args, " ")
-        local matched = string.find(args_string, value, 1, true) ~= nil
-
-        if matched == true then
-          bang = true
-          break
-        end
-      end
-    end
-
-    C.run_cmd(args, bang)
+    Executor.run(entry.cmd, opts.bang)
   end, {
-    bang = true,
     nargs = "?",
-    desc = "Rerun the last command",
-  })
-
-  vim.api.nvim_create_user_command("CmdCancel", function(opts)
-    local id = tonumber(opts.args)
-    cancel_cmd(id, opts.bang)
-  end, {
     bang = true,
-    nargs = "?",
-    desc = "Cancel the currently running Cmd (add ! to cancel all)",
-  })
-
-  vim.api.nvim_create_user_command("CmdHistory", function()
-    local history = S.command_history
-
-    if #history == 0 then
-      H.notify("No command history", "INFO")
-      return
-    end
-
-    local width = math.floor(vim.o.columns * 0.6)
-    local height = math.floor(vim.o.lines * 0.6)
-
-    -- Prepare floating window / buffer
-    local buf = vim.api.nvim_create_buf(false, true)
-    local win = vim.api.nvim_open_win(buf, false, {
-      relative = "editor",
-      width = width,
-      height = height,
-      col = (vim.o.columns - width) / 2,
-      row = (vim.o.lines - height) / 2,
-      style = "minimal",
-      border = "rounded",
-      title = "Command History",
-    })
-
-    vim.bo[buf].buftype = "nofile"
-    vim.bo[buf].bufhidden = "wipe"
-    vim.bo[buf].swapfile = false
-    vim.bo[buf].modifiable = true
-
-    vim.wo[win].winhighlight = string.format(
-      "NormalFloat:%s,FloatBorder:%s,FloatTitle:%s",
-      "CmdHistoryNormal",
-      "CmdHistoryBorder",
-      "CmdHistoryTitle"
-    )
-
-    local close = function()
-      pcall(vim.api.nvim_win_close, win, true)
-    end
-
-    for _, key in ipairs({ "<Esc>", "q", "<C-c>" }) do
-      vim.keymap.set("n", key, close, { buffer = buf, nowait = true })
-    end
-
-    vim.api.nvim_create_autocmd("WinLeave", { buffer = buf, once = true, callback = close })
-
-    ---@type string[]
-    local lines = {}
-
-    ---@type Cmd.FormattedLineOpts[][]
-    local formatted_raw_data = {}
-
-    for i = #history, 1, -1 do
-      local entry = history[i]
-
-      local formatter_fn = Cmd.config.history_formatter_fn or U.default_history_formatter
-
-      if type(formatter_fn) ~= "function" then
-        error("`opts.history_formatter_fn` must be a function")
-        return
-      end
-
-      local formatted = formatter_fn({
-        history = entry,
-      })
-
-      local formatted_line_data = H.parse_format_fn_result(formatted)
-      local formatted_line = H.convert_parsed_format_result_to_string(formatted_line_data)
-
-      table.insert(lines, formatted_line)
-      table.insert(formatted_raw_data, formatted_line_data)
-    end
-
-    pcall(vim.api.nvim_buf_set_lines, buf, 0, -1, false, lines)
-
-    vim.bo[buf].modifiable = false
-
-    local ns = vim.api.nvim_create_namespace("cmd_history")
-    H.setup_virtual_text_hls(ns, buf, formatted_raw_data)
-
-    vim.api.nvim_set_current_win(win)
-  end, {
-    desc = "History",
+    desc = "Rerun command from history (! for terminal mode)",
   })
 end
 
----Set up autocmds for cleanup and resource management.
----
----Handles cleanup of timers and temporary files when Neovim exits
----to prevent resource leaks and file system pollution.
----
----@return nil
+---Setup :CmdCancel command
+Commands.setup_cancel_command = function()
+  vim.api.nvim_create_user_command("CmdCancel", function(opts)
+    if opts.bang then
+      -- Cancel all running commands
+      local cancelled = 0
+      for _, entry in pairs(State.command_history) do
+        if entry.job and not entry.job:is_closing() then
+          local success = Executor.cancel(entry.id)
+          if success then
+            cancelled = cancelled + 1
+          end
+        end
+      end
+      Utils.notify(string.format("Cancelled %d running commands", cancelled), "INFO")
+    else
+      -- Cancel specific or last command
+      local id = tonumber(opts.args) or #State.command_history
+      local success, msg = Executor.cancel(id)
+      Utils.notify(msg, success and "INFO" or "WARN")
+    end
+  end, {
+    nargs = "?",
+    bang = true,
+    desc = "Cancel running command (! to cancel all)",
+  })
+end
+
+---Setup :CmdHistory command
+Commands.setup_history_command = function()
+  vim.api.nvim_create_user_command("CmdHistory", function()
+    UI.show_history()
+  end, {
+    desc = "Show command history",
+  })
+end
+
+---Setup auto-created user commands for configured executables
+Commands.setup_auto_commands = function()
+  local existing_cmds = vim.api.nvim_get_commands({})
+
+  for executable, cmd_name in pairs(State.config.create_usercmd or {}) do
+    if vim.fn.executable(executable) == 1 and not existing_cmds[cmd_name] then
+      vim.api.nvim_create_user_command(cmd_name, function(opts)
+        local args = vim.deepcopy(opts.fargs)
+
+        -- Expand arguments
+        for i, arg in ipairs(args) do
+          args[i] = vim.fn.expand(arg)
+        end
+
+        local full_args = vim.list_extend({ executable }, args)
+        local force_terminal = opts.bang or Executor.should_force_terminal(executable, full_args)
+
+        Executor.run(full_args, force_terminal)
+      end, {
+        nargs = "*",
+        bang = true,
+        complete = function(...)
+          return Completion.get_candidates(executable, ...)
+        end,
+        desc = string.format("Auto-generated command for %s", executable),
+      })
+    end
+  end
+end
+
+-- ============================================================================
+-- AUTOCMDS & CLEANUP
+-- ============================================================================
+
+---Setup autocmds for cleanup and resource management
 local function setup_autocmds()
+  local group = vim.api.nvim_create_augroup("CmdNvim", { clear = true })
+
   vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = group,
     callback = function()
-      -- stop all timers
-      for _, st in pairs(S.spinner_state) do
-        if st.timer and not st.timer:is_closing() then
-          st.timer:stop()
-          st.timer:close()
+      -- Stop all spinner timers
+      for _, state in pairs(State.spinner_state) do
+        if state.timer and not state.timer:is_closing() then
+          state.timer:stop()
+          state.timer:close()
         end
       end
 
-      -- delete all temp scripts
-      for _, path in pairs(S.temp_script_cache) do
-        H.safe_delete(path)
+      -- Clean up temporary completion scripts
+      for _, path in pairs(State.temp_script_cache) do
+        Utils.safe_delete(path)
+      end
+
+      -- Kill any remaining processes
+      for _, entry in pairs(State.command_history) do
+        if entry.job and not entry.job:is_closing() then
+          entry.job:kill("sigterm")
+        end
       end
     end,
   })
 end
 
----Set up default highlight groups for the plugin.
----
----Creates highlight group definitions with sensible defaults
----that link to existing Neovim highlight groups.
----
----@return nil
-local function setup_hls()
-  local hi = function(name, opts)
-    opts.default = true
+-- ============================================================================
+-- HIGHLIGHT GROUPS
+-- ============================================================================
+
+---Setup default highlight groups
+local function setup_highlights()
+  local highlights = {
+    CmdHistoryNormal = { link = "NormalFloat", default = true },
+    CmdHistoryBorder = { link = "FloatBorder", default = true },
+    CmdHistoryTitle = { link = "FloatTitle", default = true },
+    CmdHistoryIdentifier = { link = "Identifier", default = true },
+    CmdHistoryTime = { link = "Comment", default = true },
+    CmdSuccess = { link = "MoreMsg", default = true },
+    CmdFailed = { link = "ErrorMsg", default = true },
+    CmdCancelled = { link = "WarningMsg", default = true },
+  }
+
+  for name, opts in pairs(highlights) do
     vim.api.nvim_set_hl(0, name, opts)
   end
-
-  hi("CmdHistoryNormal", { link = "NormalFloat" })
-  hi("CmdHistoryBorder", { link = "FloatBorder" })
-  hi("CmdHistoryTitle", { link = "FloatTitle" })
-  hi("CmdHistoryIdentifier", { link = "Identifier" })
-  hi("CmdHistoryTime", { link = "Comment" })
-  hi("CmdSuccess", { link = "MoreMsg" })
-  hi("CmdFailed", { link = "ErrorMsg" })
-  hi("CmdCancelled", { link = "WarningMsg" })
 end
 
----Validate that a notification adapter implements the required interface.
----
----Ensures that custom adapters have all required methods with proper signatures
----to prevent runtime errors during command execution.
----
----@param adapter? Cmd.Config.ProgressNotifier.SpinnerAdapter Adapter to validate
----@return nil
-local function validate_adapter(adapter)
-  if adapter == nil then
+-- ============================================================================
+-- HEALTH CHECK
+-- ============================================================================
+
+---@private
+---Health check for :checkhealth
+function M.check()
+  if not setup_complete then
+    vim.health.error("cmd.nvim not setup", "Run require('cmd').setup()")
     return
   end
 
-  if type(adapter) ~= "table" then
-    error("`opts.progress_notifier.adapter` must be a table")
+  vim.health.start("cmd.nvim")
+
+  -- Check environment
+  if uv then
+    vim.health.ok("libuv available")
+  else
+    vim.health.error("libuv not available")
   end
 
-  if adapter.start == nil or type(adapter.start) ~= "function" then
-    error("`opts.progress_notifier.adapter.start` must be a function")
+  -- Check shell
+  local shell = State.config.completion.shell
+  if vim.fn.executable(shell) == 1 then
+    vim.health.ok("Shell executable: " .. shell)
+  else
+    vim.health.warn("Shell not executable: " .. shell)
   end
 
-  if adapter.update == nil or type(adapter.update) ~= "function" then
-    error("`opts.progress_notifier.adapter.update` must be a function")
+  -- Check optional dependencies
+  local deps = {
+    { "snacks.nvim", "snacks" },
+    { "mini.notify", "mini.notify" },
+    { "fidget.nvim", "fidget" },
+  }
+
+  for _, dep in ipairs(deps) do
+    local name, module = dep[1], dep[2]
+    ---@diagnostic disable-next-line: redefined-local
+    local ok = pcall(require, module)
+    if ok then
+      vim.health.ok(name .. " available")
+    else
+      vim.health.info(name .. " not available (optional)")
+    end
   end
 
-  if adapter.finish == nil or type(adapter.finish) ~= "function" then
-    error("`opts.progress_notifier.adapter.finish` must be a function")
+  -- Check configuration
+  local issues = {}
+  if State.config.timeout <= 0 then
+    table.insert(issues, "timeout should be positive")
+  end
+
+  if #issues > 0 then
+    for _, issue in ipairs(issues) do
+      vim.health.warn("Configuration: " .. issue)
+    end
+  else
+    vim.health.ok("Configuration valid")
   end
 end
+
+-- ============================================================================
+-- PUBLIC API & SETUP
+-- ============================================================================
+
+---@mod cmd.public Public API
+
+-- Default history formatter (set here to avoid circular dependency)
+DEFAULT_CONFIG.history_formatter_fn = History.default_formatter
 
 ---@tag Cmd.setup()
 
@@ -1876,29 +1890,36 @@ end
 ---     }
 ---   })
 ---@usage ]]
-function Cmd.setup(user_config)
-  if did_setup then
+function M.setup(user_config)
+  if setup_complete then
+    Utils.notify("cmd.nvim already setup", "WARN")
     return
   end
-  did_setup = true
 
-  Cmd.config = vim.tbl_deep_extend("force", Cmd.defaults, user_config or {})
-
-  validate_adapter(Cmd.config.progress_notifier.adapter)
-
-  if Cmd.config.create_usercmd and not vim.tbl_isempty(Cmd.config.create_usercmd) then
-    create_usercmd_if_not_exists()
+  -- Validate and merge configuration
+  local config = vim.tbl_deep_extend("force", DEFAULT_CONFIG, user_config or {})
+  local valid, err = validate_config(config)
+  if not valid then
+    error("cmd.nvim: Invalid configuration: " .. err)
   end
 
+  State.config = config
+
+  -- Initialize systems
+  init_state()
+  setup_highlights()
   setup_autocmds()
-  setup_usercmds()
-  setup_hls()
+  Commands.setup()
+
+  -- Expose public configuration
+  M.config = vim.deepcopy(State.config)
+
+  setup_complete = true
 end
 
----@class Cmd.builtins
----Built-in utilities and adapters for extending plugin functionality.
----@field spinner_driver fun(adapter: Cmd.Config.ProgressNotifier.SpinnerAdapter): Cmd.SpinnerDriver Create spinner driver for adapter
----@field spinner_adapters table<"snacks"|"mini"|"fidget", Cmd.Config.ProgressNotifier.SpinnerAdapter> Pre-built notification adapters
+-- ============================================================================
+-- PUBLIC BUILT-INS
+-- ============================================================================
 
 ---@tag Cmd.builtins
 
@@ -1907,7 +1928,7 @@ end
 ---Provides pre-built notification adapters for popular plugins and utilities
 ---for creating custom notification implementations.
 ---
----@type Cmd.builtins
+---@type Cmd.Builtins
 ---@usage [[
 ---   -- Use built-in snacks.nvim adapter
 ---   require('cmd').setup({
@@ -1922,7 +1943,11 @@ end
 ---     update = function(id, msg) my_notify_update(id, msg) end,
 ---     finish = function(id, msg, level) my_notify_finish(id, msg, level) end
 ---   }
----   local driver = require('cmd').builtins.spinner_driver(custom_adapter)
+---   require('cmd').setup({
+---     progress_notifier = {
+---       adapter = custom_adapter
+---     }
+---   })
 ---
 ---   -- Custom history formatter
 ---   local custom_history_formatter = function(opts)
@@ -1945,10 +1970,30 @@ end
 ---     history_formatter_fn = custom_history_formatter
 ---   })
 ---@usage ]]
-Cmd.builtins = {
-  spinner_driver = U.spinner_driver,
-  spinner_adapters = U.spinner_adapters,
-  history_formatter_fn = U.default_history_formatter,
+M.builtins = {
+  spinner_adapters = Spinner.builtin_adapters,
+  formatters = {
+    default_history = History.default_formatter,
+  },
 }
 
-return Cmd
+-- ============================================================================
+-- DEVELOPMENT API
+-- ============================================================================
+
+---@private
+---Internal API for development and testing
+M._internal = {
+  state = function()
+    return State
+  end,
+  utils = Utils,
+  history = History,
+  spinner = Spinner,
+  completion = Completion,
+  ui = UI,
+  executor = Executor,
+  commands = Commands,
+}
+
+return M
