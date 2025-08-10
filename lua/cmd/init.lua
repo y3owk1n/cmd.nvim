@@ -387,6 +387,57 @@ function H.notify(msg, lvl, opts)
   vim.notify(msg, vim.log.levels[lvl:upper()], opts)
 end
 
+---Stream or notify a command execution, throw an error if not the right command_type
+---
+---@param stages "pre" | "post"
+---@param status Cmd.CommandStatus
+---@param command_id integer Unique command identifier
+---@param args string[] Command arguments array
+---@param notify_id? string|number|nil Notification ID
+---@return string|number|nil notify_id
+function H.stream_or_notify(stages, status, command_id, args, notify_id)
+  if stages == "pre" then
+    if Cmd.config.async_notifier.adapter and type(Cmd.config.async_notifier.adapter) == "table" then
+      return U.spinner_driver(Cmd.config.async_notifier.adapter).pre_exec({
+        command_id = command_id,
+        args_raw = args,
+        args = table.concat(args, " "),
+        get_spinner_state = H.get_spinner_state,
+        set_spinner_state = H.set_spinner_state,
+        spinner_chars = Cmd.config.async_notifier.spinner_chars,
+      })
+    else
+      local msg = string.format("? [#%s] running `%s`", command_id, table.concat(args, " "))
+      H.notify(msg, "INFO")
+      return
+    end
+  end
+
+  if stages == "post" then
+    if Cmd.config.async_notifier.adapter and type(Cmd.config.async_notifier.adapter) == "table" then
+      U.spinner_driver(Cmd.config.async_notifier.adapter).post_exec({
+        command_id = command_id,
+        args_raw = args,
+        args = table.concat(args, " "),
+        get_spinner_state = H.get_spinner_state,
+        set_spinner_state = H.set_spinner_state,
+        status = status,
+        user_defined_notifier_id = notify_id,
+      })
+      return
+    else
+      local icon = icon_map[status] or " "
+      local level = level_map[status] or vim.log.levels.ERROR
+
+      local msg = string.format("%s [#%s] %s `%s`", icon, command_id, status, table.concat(args, " "))
+      H.notify(msg, level)
+      return
+    end
+  end
+
+  error("must be pre or post stage")
+end
+
 ---Convert stream chunks array to a single string with proper line endings.
 ---
 ---@param chunks string[] Array of data chunks from stream
@@ -1005,6 +1056,11 @@ function U.show_terminal(cmd, title, command_id)
     cmd = { unpack(cmd) }
   end
 
+  local user_defined_notifier_id = H.stream_or_notify("pre", "running", command_id, cmd)
+
+  ---@type Cmd.CommandStatus
+  local status
+
   vim.fn.jobstart(cmd, {
     cwd = S.cwd,
     term = true,
@@ -1012,21 +1068,28 @@ function U.show_terminal(cmd, title, command_id)
       U.refresh_ui()
 
       if code == 0 then
+        status = "success"
         C.track_cmd({
           id = command_id,
-          status = "success",
+          status = status,
         })
+
+        H.stream_or_notify("post", status, command_id, cmd, user_defined_notifier_id)
         return
       end
 
       vim.schedule(function()
         -- 130 = Interrupted (Ctrl+C)
         if code == 130 then
+          status = "cancelled"
           C.track_cmd({
             id = command_id,
-            status = "cancelled",
+            status = status,
           })
           pcall(vim.api.nvim_buf_delete, buf, { force = true })
+
+          H.stream_or_notify("post", status, command_id, cmd, user_defined_notifier_id)
+
           return
         end
 
@@ -1042,11 +1105,15 @@ function U.show_terminal(cmd, title, command_id)
 
         H.notify(string.format("`%s` exited %d\n%s", cmd_string, code, preview), "ERROR")
 
+        status = "failed"
+
         C.track_cmd({
           id = command_id,
-          status = "failed",
+          status = status,
         })
         pcall(vim.api.nvim_buf_delete, buf, { force = true })
+
+        H.stream_or_notify("post", status, command_id, cmd, user_defined_notifier_id)
       end)
     end,
   })
@@ -1340,21 +1407,7 @@ function C.run_cmd(args, bang)
       status = "running",
     })
 
-    local user_defined_notifier_id = nil
-
-    if Cmd.config.async_notifier.adapter and type(Cmd.config.async_notifier.adapter) == "table" then
-      user_defined_notifier_id = U.spinner_driver(Cmd.config.async_notifier.adapter).pre_exec({
-        command_id = command_id,
-        args_raw = args,
-        args = table.concat(args, " "),
-        get_spinner_state = H.get_spinner_state,
-        set_spinner_state = H.set_spinner_state,
-        spinner_chars = Cmd.config.async_notifier.spinner_chars,
-      })
-    else
-      local msg = string.format("? [#%s] running `%s`", command_id, table.concat(args, " "))
-      H.notify(msg, "INFO")
-    end
+    local user_defined_notifier_id = H.stream_or_notify("pre", "running", command_id, args)
 
     C.exec_cli(args, command_id, function(code, out, err, is_cancelled)
       ---@type Cmd.CommandStatus
@@ -1386,28 +1439,12 @@ function C.run_cmd(args, bang)
         end
       end
 
-      if Cmd.config.async_notifier.adapter and type(Cmd.config.async_notifier.adapter) == "table" then
-        U.spinner_driver(Cmd.config.async_notifier.adapter).post_exec({
-          command_id = command_id,
-          args_raw = args,
-          args = table.concat(args, " "),
-          get_spinner_state = H.get_spinner_state,
-          set_spinner_state = H.set_spinner_state,
-          status = status,
-          user_defined_notifier_id = user_defined_notifier_id,
-        })
-      else
-        local icon = icon_map[status] or " "
-        local level = level_map[status] or vim.log.levels.ERROR
-
-        local msg = string.format("%s [#%s] %s `%s`", icon, command_id, status, table.concat(args, " "))
-        H.notify(msg, level)
-      end
-
       C.track_cmd({
         id = command_id,
         status = status,
       })
+
+      H.stream_or_notify("post", status, command_id, args, user_defined_notifier_id)
     end)
   end
 end
