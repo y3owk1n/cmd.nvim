@@ -68,7 +68,7 @@
 ---    enabled = false,
 ---    shell = vim.env.SHELL or "/bin/sh",
 ---  },
----  async_notifier = {
+---  progress_notifier = {
 ---    spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
 ---    adapter = nil,
 ---  },
@@ -126,13 +126,13 @@
 ---   })
 ---<
 ---
----## Async notifications ~
+---## Progress notifications ~
 ---
 ---Configure progress notifications with different adapters:
 --->lua
 ---   -- Using built-in snacks.nvim adapter
 ---   require('cmd').setup({
----     async_notifier = {
+---     progress_notifier = {
 ---       adapter = require('cmd').builtins.spinner_adapters.snacks,
 ---       spinner_chars = { '⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷' },
 ---     }
@@ -140,7 +140,7 @@
 ---
 ---   -- Using custom adapter
 ---   require('cmd').setup({
----     async_notifier = {
+---     progress_notifier = {
 ---       adapter = {
 ---         start = function(msg, data)
 ---           return vim.notify(msg, vim.log.levels.INFO)
@@ -258,7 +258,7 @@ local H = {}
 ---User interface components including spinner adapters, buffer management,
 ---terminal integration, and visual feedback systems.
 local U = {
-  ---@type table<string, Cmd.Config.AsyncNotifier.SpinnerAdapter>
+  ---@type table<string, Cmd.Config.ProgressNotifier.SpinnerAdapter>
   spinner_adapters = {},
 }
 
@@ -397,14 +397,14 @@ end
 ---@return string|number|nil notify_id
 function H.stream_or_notify(stages, status, command_id, args, notify_id)
   if stages == "pre" then
-    if Cmd.config.async_notifier.adapter and type(Cmd.config.async_notifier.adapter) == "table" then
-      return U.spinner_driver(Cmd.config.async_notifier.adapter).pre_exec({
+    if Cmd.config.progress_notifier.adapter and type(Cmd.config.progress_notifier.adapter) == "table" then
+      return U.spinner_driver(Cmd.config.progress_notifier.adapter).pre_exec({
         command_id = command_id,
         args_raw = args,
         args = table.concat(args, " "),
         get_spinner_state = H.get_spinner_state,
         set_spinner_state = H.set_spinner_state,
-        spinner_chars = Cmd.config.async_notifier.spinner_chars,
+        spinner_chars = Cmd.config.progress_notifier.spinner_chars,
       })
     else
       local msg = string.format("? [#%s] running `%s`", command_id, table.concat(args, " "))
@@ -414,8 +414,8 @@ function H.stream_or_notify(stages, status, command_id, args, notify_id)
   end
 
   if stages == "post" then
-    if Cmd.config.async_notifier.adapter and type(Cmd.config.async_notifier.adapter) == "table" then
-      U.spinner_driver(Cmd.config.async_notifier.adapter).post_exec({
+    if Cmd.config.progress_notifier.adapter and type(Cmd.config.progress_notifier.adapter) == "table" then
+      U.spinner_driver(Cmd.config.progress_notifier.adapter).post_exec({
         command_id = command_id,
         args_raw = args,
         args = table.concat(args, " "),
@@ -796,20 +796,20 @@ end
 
 ---@class Cmd.SpinnerDriver
 ---Driver interface for managing spinner lifecycle during command execution.
----@field pre_exec fun(opts: Cmd.Config.AsyncNotifier.PreExec): string|integer|number|nil Function called before command execution
----@field post_exec fun(opts: Cmd.Config.AsyncNotifier.PostExec) Function called after command completion
+---@field pre_exec fun(opts: Cmd.Config.ProgressNotifier.PreExec): string|integer|number|nil Function called before command execution
+---@field post_exec fun(opts: Cmd.Config.ProgressNotifier.PostExec) Function called after command completion
 
 ---Create a spinner driver for a specific adapter.
 ---
 ---The driver manages the complete lifecycle of progress notifications,
 ---from starting the spinner animation to showing the final result.
 ---
----@param adapter Cmd.Config.AsyncNotifier.SpinnerAdapter Notification adapter to use
+---@param adapter Cmd.Config.ProgressNotifier.SpinnerAdapter Notification adapter to use
 ---@return Cmd.SpinnerDriver Configured spinner driver
 function U.spinner_driver(adapter)
   return {
     ---Start the spinner animation and initial notification
-    ---@param opts Cmd.Config.AsyncNotifier.PreExec Execution context and configuration
+    ---@param opts Cmd.Config.ProgressNotifier.PreExec Execution context and configuration
     pre_exec = function(opts)
       local timer = uv.new_timer()
       if timer then
@@ -849,7 +849,7 @@ function U.spinner_driver(adapter)
     end,
 
     ---Stop spinner and show final execution result
-    ---@param opts Cmd.Config.AsyncNotifier.PostExec Post-execution context and results
+    ---@param opts Cmd.Config.ProgressNotifier.PostExec Post-execution context and results
     post_exec = function(opts)
       local st = opts.get_spinner_state(opts.command_id)
       if not st or not st.active then
@@ -876,7 +876,7 @@ end
 ---
 ---Uses notification IDs for updating progress messages and maintaining
 ---consistent notification state throughout command execution.
----@type Cmd.Config.AsyncNotifier.SpinnerAdapter
+---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
 U.spinner_adapters.snacks = {
   start = function(msg, data)
     H.notify(msg, "INFO", { id = string.format("cmd_progress_%s", data.command_id), title = "cmd" })
@@ -896,7 +896,7 @@ U.spinner_adapters.snacks = {
 ---
 ---Manages notification lifecycle using mini.notify's ID-based system
 ---for updating and removing notifications after completion.
----@type Cmd.Config.AsyncNotifier.SpinnerAdapter
+---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
 U.spinner_adapters.mini = {
   start = function(msg)
     ---@diagnostic disable-next-line: redefined-local
@@ -942,7 +942,7 @@ U.spinner_adapters.mini = {
 ---
 ---Uses fidget's key-based notification system with automatic TTL
 ---management for progress updates and final results.
----@type Cmd.Config.AsyncNotifier.SpinnerAdapter
+---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
 U.spinner_adapters.fidget = {
   start = function(msg, data)
     ---@diagnostic disable-next-line: redefined-local
@@ -1480,7 +1480,7 @@ Cmd.config = {}
 ---@field shell? string Shell executable to use for completion (default: $SHELL or "/bin/sh")
 ---@field prompt_pattern_to_remove? string Regex pattern to remove from completion output
 
----@class Cmd.Config.AsyncNotifier.PreExec
+---@class Cmd.Config.ProgressNotifier.PreExec
 ---Context passed to spinner adapter before command execution.
 ---@field command_id integer Unique command identifier
 ---@field args_raw string[] Original command arguments array
@@ -1490,7 +1490,7 @@ Cmd.config = {}
 ---@field spinner_chars string[] Array of spinner animation characters
 ---@field current_spinner_char? string Currently displayed spinner character
 
----@class Cmd.Config.AsyncNotifier.PostExec
+---@class Cmd.Config.ProgressNotifier.PostExec
 ---Context passed to spinner adapter after command execution.
 ---@field command_id integer Unique command identifier
 ---@field args_raw string[] Original command arguments array
@@ -1500,16 +1500,16 @@ Cmd.config = {}
 ---@field status Cmd.CommandStatus Final command execution status
 ---@field user_defined_notifier_id? string|integer|number|nil Adapter-specific notification ID
 
----@class Cmd.Config.AsyncNotifier
+---@class Cmd.Config.ProgressNotifier
 ---Configuration for async command notifications and progress indicators.
 ---@field spinner_chars? string[] Characters for spinner animation (default: braille patterns)
----@field adapter? Cmd.Config.AsyncNotifier.SpinnerAdapter Custom notification adapter
+---@field adapter? Cmd.Config.ProgressNotifier.SpinnerAdapter Custom notification adapter
 
----@class Cmd.Config.AsyncNotifier.SpinnerAdapter
+---@class Cmd.Config.ProgressNotifier.SpinnerAdapter
 ---Interface for custom notification adapters to handle progress display.
----@field start fun(msg: string, data: Cmd.Config.AsyncNotifier.PreExec): string|integer|nil Initialize progress notification
----@field update fun(notify_id: string|integer|number|nil, msg: string, data: Cmd.Config.AsyncNotifier.PreExec) Update progress message
----@field finish fun(notify_id: string, msg: string, level: Cmd.LogLevel, data: Cmd.Config.AsyncNotifier.PostExec) Show final result
+---@field start fun(msg: string, data: Cmd.Config.ProgressNotifier.PreExec): string|integer|nil Initialize progress notification
+---@field update fun(notify_id: string|integer|number|nil, msg: string, data: Cmd.Config.ProgressNotifier.PreExec) Update progress message
+---@field finish fun(notify_id: string, msg: string, level: Cmd.LogLevel, data: Cmd.Config.ProgressNotifier.PostExec) Show final result
 
 ---@class Cmd.Config
 ---Main configuration table for the Cmd plugin.
@@ -1518,7 +1518,7 @@ Cmd.config = {}
 ---@field env? table<string, string[]> Environment variables per executable
 ---@field timeout? integer Default command timeout in milliseconds (default: 30000)
 ---@field completion? Cmd.Config.Completion Shell completion configuration
----@field async_notifier? Cmd.Config.AsyncNotifier Progress notification configuration
+---@field progress_notifier? Cmd.Config.ProgressNotifier Progress notification configuration
 ---@field history_formatter_fn? fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Formatter function for history display
 
 ---@tag Cmd.defaults
@@ -1534,7 +1534,7 @@ Cmd.defaults = {
     enabled = false,
     shell = vim.env.SHELL or "/bin/sh",
   },
-  async_notifier = {
+  progress_notifier = {
     spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
     adapter = nil,
   },
@@ -1830,7 +1830,7 @@ end
 ---Ensures that custom adapters have all required methods with proper signatures
 ---to prevent runtime errors during command execution.
 ---
----@param adapter? Cmd.Config.AsyncNotifier.SpinnerAdapter Adapter to validate
+---@param adapter? Cmd.Config.ProgressNotifier.SpinnerAdapter Adapter to validate
 ---@return nil
 local function validate_adapter(adapter)
   if adapter == nil then
@@ -1838,19 +1838,19 @@ local function validate_adapter(adapter)
   end
 
   if type(adapter) ~= "table" then
-    error("`opts.async_notifier.adapter` must be a table")
+    error("`opts.progress_notifier.adapter` must be a table")
   end
 
   if adapter.start == nil or type(adapter.start) ~= "function" then
-    error("`opts.async_notifier.adapter.start` must be a function")
+    error("`opts.progress_notifier.adapter.start` must be a function")
   end
 
   if adapter.update == nil or type(adapter.update) ~= "function" then
-    error("`opts.async_notifier.adapter.update` must be a function")
+    error("`opts.progress_notifier.adapter.update` must be a function")
   end
 
   if adapter.finish == nil or type(adapter.finish) ~= "function" then
-    error("`opts.async_notifier.adapter.finish` must be a function")
+    error("`opts.progress_notifier.adapter.finish` must be a function")
   end
 end
 
@@ -1871,7 +1871,7 @@ end
 ---   require('cmd').setup({
 ---     completion = { enabled = true },
 ---     timeout = 60000,
----     async_notifier = {
+---     progress_notifier = {
 ---       adapter = require('cmd').builtins.spinner_adapters.snacks
 ---     }
 ---   })
@@ -1884,7 +1884,7 @@ function Cmd.setup(user_config)
 
   Cmd.config = vim.tbl_deep_extend("force", Cmd.defaults, user_config or {})
 
-  validate_adapter(Cmd.config.async_notifier.adapter)
+  validate_adapter(Cmd.config.progress_notifier.adapter)
 
   if Cmd.config.create_usercmd and not vim.tbl_isempty(Cmd.config.create_usercmd) then
     create_usercmd_if_not_exists()
@@ -1897,8 +1897,8 @@ end
 
 ---@class Cmd.builtins
 ---Built-in utilities and adapters for extending plugin functionality.
----@field spinner_driver fun(adapter: Cmd.Config.AsyncNotifier.SpinnerAdapter): Cmd.SpinnerDriver Create spinner driver for adapter
----@field spinner_adapters table<"snacks"|"mini"|"fidget", Cmd.Config.AsyncNotifier.SpinnerAdapter> Pre-built notification adapters
+---@field spinner_driver fun(adapter: Cmd.Config.ProgressNotifier.SpinnerAdapter): Cmd.SpinnerDriver Create spinner driver for adapter
+---@field spinner_adapters table<"snacks"|"mini"|"fidget", Cmd.Config.ProgressNotifier.SpinnerAdapter> Pre-built notification adapters
 
 ---@tag Cmd.builtins
 
@@ -1911,7 +1911,7 @@ end
 ---@usage [[
 ---   -- Use built-in snacks.nvim adapter
 ---   require('cmd').setup({
----     async_notifier = {
+---     progress_notifier = {
 ---       adapter = require('cmd').builtins.spinner_adapters.snacks
 ---     }
 ---   })
