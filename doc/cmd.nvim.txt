@@ -71,7 +71,7 @@ Default values:
     enabled = false,
     shell = vim.env.SHELL or "/bin/sh",
   },
-  async_notifier = {
+  progress_notifier = {
     spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
     adapter = nil,
   },
@@ -129,13 +129,13 @@ Configure shell completion behavior:
    })
 <
 
-## Async notifications ~
+## Progress notifications ~
 
 Configure progress notifications with different adapters:
 >lua
    -- Using built-in snacks.nvim adapter
    require('cmd').setup({
-     async_notifier = {
+     progress_notifier = {
        adapter = require('cmd').builtins.spinner_adapters.snacks,
        spinner_chars = { '⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷' },
      }
@@ -143,7 +143,7 @@ Configure progress notifications with different adapters:
 
    -- Using custom adapter
    require('cmd').setup({
-     async_notifier = {
+     progress_notifier = {
        adapter = {
          start = function(msg, data)
            return vim.notify(msg, vim.log.levels.INFO)
@@ -310,9 +310,9 @@ Cmd.CommandHistoryFormatterOpts        *cmd.api.Cmd.CommandHistoryFormatterOpts*
 Cmd.SpinnerDriver                                    *cmd.api.Cmd.SpinnerDriver*
 
     Fields: ~
-        {pre_exec}   (fun(opts:Cmd.Config.AsyncNotifier.PreExec):string|integer|number|nil)  Function called before command execution
-                                                                                             Driver interface for managing spinner lifecycle during command execution.
-        {post_exec}  (fun(opts:Cmd.Config.AsyncNotifier.PostExec))                           Function called after command completion
+        {pre_exec}   (fun(opts:Cmd.Config.ProgressNotifier.PreExec):string|integer|number|nil)  Function called before command execution
+                                                                                                Driver interface for managing spinner lifecycle during command execution.
+        {post_exec}  (fun(opts:Cmd.Config.ProgressNotifier.PostExec))                           Function called after command completion
 
 
 Cmd.RunResult                                            *cmd.api.Cmd.RunResult*
@@ -335,7 +335,8 @@ Cmd.Config.Completion                            *cmd.api.Cmd.Config.Completion*
         {prompt_pattern_to_remove?}  (string)   Regex pattern to remove from completion output
 
 
-Cmd.Config.AsyncNotifier.PreExec      *cmd.api.Cmd.Config.AsyncNotifier.PreExec*
+                                   *cmd.api.Cmd.Config.ProgressNotifier.PreExec*
+Cmd.Config.ProgressNotifier.PreExec
 
     Fields: ~
         {command_id}             (integer)                                       Unique command identifier
@@ -348,8 +349,8 @@ Cmd.Config.AsyncNotifier.PreExec      *cmd.api.Cmd.Config.AsyncNotifier.PreExec*
         {current_spinner_char?}  (string)                                        Currently displayed spinner character
 
 
-                                     *cmd.api.Cmd.Config.AsyncNotifier.PostExec*
-Cmd.Config.AsyncNotifier.PostExec
+                                  *cmd.api.Cmd.Config.ProgressNotifier.PostExec*
+Cmd.Config.ProgressNotifier.PostExec
 
     Fields: ~
         {command_id}                 (integer)                                       Unique command identifier
@@ -362,22 +363,22 @@ Cmd.Config.AsyncNotifier.PostExec
         {user_defined_notifier_id?}  (string|integer|number|nil)                     Adapter-specific notification ID
 
 
-Cmd.Config.AsyncNotifier                      *cmd.api.Cmd.Config.AsyncNotifier*
+Cmd.Config.ProgressNotifier                *cmd.api.Cmd.Config.ProgressNotifier*
 
     Fields: ~
-        {spinner_chars?}  (string[])                                 Characters for spinner animation (default: braille patterns)
-                                                                     Configuration for async command notifications and progress indicators.
-        {adapter?}        (Cmd.Config.AsyncNotifier.SpinnerAdapter)  Custom notification adapter
+        {spinner_chars?}  (string[])                                    Characters for spinner animation (default: braille patterns)
+                                                                        Configuration for async command notifications and progress indicators.
+        {adapter?}        (Cmd.Config.ProgressNotifier.SpinnerAdapter)  Custom notification adapter
 
 
-                               *cmd.api.Cmd.Config.AsyncNotifier.SpinnerAdapter*
-Cmd.Config.AsyncNotifier.SpinnerAdapter
+                            *cmd.api.Cmd.Config.ProgressNotifier.SpinnerAdapter*
+Cmd.Config.ProgressNotifier.SpinnerAdapter
 
     Fields: ~
-        {start}   (fun(msg:string,data:Cmd.Config.AsyncNotifier.PreExec):string|integer|nil)                    Initialize progress notification
-                                                                                                                Interface for custom notification adapters to handle progress display.
-        {update}  (fun(notify_id:string|integer|number|nil,msg:string,data:Cmd.Config.AsyncNotifier.PreExec))   Update progress message
-        {finish}  (fun(notify_id:string,msg:string,level:Cmd.LogLevel,data:Cmd.Config.AsyncNotifier.PostExec))  Show final result
+        {start}   (fun(msg:string,data:Cmd.Config.ProgressNotifier.PreExec):string|integer|nil)                    Initialize progress notification
+                                                                                                                   Interface for custom notification adapters to handle progress display.
+        {update}  (fun(notify_id:string|integer|number|nil,msg:string,data:Cmd.Config.ProgressNotifier.PreExec))   Update progress message
+        {finish}  (fun(notify_id:string,msg:string,level:Cmd.LogLevel,data:Cmd.Config.ProgressNotifier.PostExec))  Show final result
 
 
 Cmd.Config                                                  *cmd.api.Cmd.Config*
@@ -389,7 +390,7 @@ Cmd.Config                                                  *cmd.api.Cmd.Config*
         {env?}                   (table<string,string[]>)                                             Environment variables per executable
         {timeout?}               (integer)                                                            Default command timeout in milliseconds (default: 30000)
         {completion?}            (Cmd.Config.Completion)                                              Shell completion configuration
-        {async_notifier?}        (Cmd.Config.AsyncNotifier)                                           Progress notification configuration
+        {progress_notifier?}     (Cmd.Config.ProgressNotifier)                                        Progress notification configuration
         {history_formatter_fn?}  (fun(opts:Cmd.CommandHistoryFormatterOpts):Cmd.FormattedLineOpts[])  Formatter function for history display
 
 
@@ -424,7 +425,7 @@ Cmd.setup({user_config?})                                        *cmd.api.setup*
            require('cmd').setup({
              completion = { enabled = true },
              timeout = 60000,
-             async_notifier = {
+             progress_notifier = {
                adapter = require('cmd').builtins.spinner_adapters.snacks
              }
            })
@@ -434,8 +435,8 @@ Cmd.setup({user_config?})                                        *cmd.api.setup*
 Cmd.builtins                                              *cmd.api.Cmd.builtins*
 
     Fields: ~
-        {spinner_driver}    (fun(adapter:Cmd.Config.AsyncNotifier.SpinnerAdapter):Cmd.SpinnerDriver)  Create spinner driver for adapter
-                                                                                                      Built-in utilities and adapters for extending plugin functionality.
+        {spinner_driver}    (fun(adapter:Cmd.Config.ProgressNotifier.SpinnerAdapter):Cmd.SpinnerDriver)  Create spinner driver for adapter
+                                                                                                         Built-in utilities and adapters for extending plugin functionality.
         {spinner_adapters}  (table)
 
 
@@ -454,7 +455,7 @@ Cmd.builtins                                                  *cmd.api.builtins*
 >lua
            -- Use built-in snacks.nvim adapter
            require('cmd').setup({
-             async_notifier = {
+             progress_notifier = {
                adapter = require('cmd').builtins.spinner_adapters.snacks
              }
            })
