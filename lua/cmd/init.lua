@@ -485,14 +485,14 @@ local Utils = {}
 
 ---Safe file deletion with deferred execution
 ---@param path string File path to delete
-Utils.safe_delete = function(path)
+function Utils.safe_delete(path)
   vim.defer_fn(function()
     pcall(vim.fn.delete, path)
   end, 0)
 end
 
 ---Ensure current working directory is set
-Utils.ensure_cwd = function()
+function Utils.ensure_cwd()
   local buf_dir = vim.fn.expand("%:p:h")
   if buf_dir and vim.fn.isdirectory(buf_dir) == 1 then
     State.cwd = buf_dir
@@ -505,7 +505,7 @@ end
 ---@param msg string Message content
 ---@param level Cmd.LogLevel Log level
 ---@param opts? table Additional options
-Utils.notify = function(msg, level, opts)
+function Utils.notify(msg, level, opts)
   opts = opts or {}
   opts.title = opts.title or "cmd.nvim"
   vim.notify(msg, vim.log.levels[level:upper()], opts)
@@ -514,7 +514,7 @@ end
 ---Convert stream chunks to string with normalized line endings
 ---@param chunks string[] Data chunks
 ---@return string
-Utils.stream_to_string = function(chunks)
+function Utils.stream_to_string(chunks)
   local normalized = table.concat(chunks):gsub("\r\n", "\n"):gsub("\r", "\n")
   return normalized
 end
@@ -522,7 +522,7 @@ end
 ---Remove empty lines from array
 ---@param lines string[] Array of strings
 ---@return string[] Filtered array
-Utils.trim_empty_lines = function(lines)
+function Utils.trim_empty_lines(lines)
   return vim.tbl_filter(function(line)
     return line and line:match("%S") ~= nil
   end, lines)
@@ -531,7 +531,7 @@ end
 ---Start reading from stream pipe into buffer
 ---@param pipe uv.uv_stream_t Stream handle
 ---@param buffer string[] Buffer to store chunks
-Utils.read_stream = function(pipe, buffer)
+function Utils.read_stream(pipe, buffer)
   uv.read_start(pipe, function(err, chunk)
     if err then
       Utils.notify("Stream read error: " .. tostring(err), "ERROR")
@@ -546,7 +546,7 @@ end
 ---Sanitize line by removing ANSI codes and trimming
 ---@param line string Input line
 ---@return string Cleaned line
-Utils.sanitize_line = function(line)
+function Utils.sanitize_line(line)
   line = line
     :gsub("\27%[[%d:;]*%d?[ -/]*[@-~]", "") -- Remove ANSI escape codes
     :gsub("^%s+", "") -- Trim leading spaces
@@ -563,7 +563,7 @@ end
 ---Get environment variables for executable
 ---@param executable string Executable name
 ---@return string[]? Environment variables or nil
-Utils.get_cmd_env = function(executable)
+function Utils.get_cmd_env(executable)
   local env = State.config.env or {}
   local found = {}
 
@@ -723,7 +723,7 @@ local History = {}
 
 ---Track command in history
 ---@param entry Cmd.CommandHistory Command entry
-History.track = function(entry)
+function History.track(entry)
   local id = entry.id
   local existing = State.command_history[id] or {}
 
@@ -739,19 +739,19 @@ end
 ---Get command from history by ID
 ---@param id integer Command ID
 ---@return Cmd.CommandHistory? Command entry or nil
-History.get = function(id)
+function History.get(id)
   return State.command_history[id]
 end
 
 ---Get all command history
 ---@return Cmd.CommandHistory[] All history entries
-History.get_all = function()
+function History.get_all()
   return State.command_history
 end
 
 ---Get next available command ID
 ---@return integer Next command ID
-History.get_next_id = function()
+function History.get_next_id()
   local id = State.next_command_id
   State.next_command_id = id + 1
   return id
@@ -760,7 +760,7 @@ end
 ---Default history formatter
 ---@param opts Cmd.CommandHistoryFormatterOpts
 ---@return Cmd.FormattedLineOpts[]
-History.default_formatter = function(opts)
+function History.default_formatter(opts)
   local virtual_separator = { display_text = " ", is_virtual = true }
 
   local entry = opts.history
@@ -813,7 +813,7 @@ local Spinner = {}
 ---Set spinner state for command
 ---@param command_id integer Command ID
 ---@param state Cmd.Spinner? Spinner state or nil to clear
-Spinner.set_state = function(command_id, state)
+function Spinner.set_state(command_id, state)
   if state then
     State.spinner_state[command_id] = vim.tbl_deep_extend("force", State.spinner_state[command_id] or {}, state)
   else
@@ -824,14 +824,14 @@ end
 ---Get spinner state for command
 ---@param command_id integer Command ID
 ---@return Cmd.Spinner? Current state or nil
-Spinner.get_state = function(command_id)
+function Spinner.get_state(command_id)
   return State.spinner_state[command_id]
 end
 
 ---Create spinner driver for adapter
 ---@param adapter Cmd.Config.ProgressNotifier.SpinnerAdapter Notification adapter
 ---@return Cmd.SpinnerDriver Configured spinner driver
-Spinner.create_driver = function(adapter)
+function Spinner.create_driver(adapter)
   return {
     ---Start the spinner animation and initial notification
     ---@param opts Cmd.Config.ProgressNotifier.Start Execution context and configuration
@@ -1010,7 +1010,7 @@ local Completion = {}
 ---Write temporary completion script for shell
 ---@param shell string Shell path
 ---@return string? Script path or nil on failure
-Completion.write_temp_script = function(shell)
+function Completion.write_temp_script(shell)
   if State.temp_script_cache[shell] then
     return State.temp_script_cache[shell]
   end
@@ -1059,7 +1059,7 @@ end
 ---@param cmd_line string Full command line
 ---@param cursor_pos integer Cursor position
 ---@return string[] Completion candidates
-Completion.get_candidates = function(executable, lead_args, cmd_line, cursor_pos)
+function Completion.get_candidates(executable, lead_args, cmd_line, cursor_pos)
   if not State.config.completion.enabled then
     return {}
   end
@@ -1130,7 +1130,7 @@ local UI = {}
 ---@param lines string[] Output lines
 ---@param title string Buffer title
 ---@param post_hook? fun(buf: integer, lines: string[]) Optional callback after buffer creation
-UI.show_buffer = function(lines, title, post_hook)
+function UI.show_buffer(lines, title, post_hook)
   -- Clean up existing buffer
   local old_buf = vim.fn.bufnr(title)
   if old_buf ~= -1 then
@@ -1168,7 +1168,7 @@ end
 ---@param cmd string[] Command arguments
 ---@param title string Terminal title
 ---@param command_id integer Command ID
-UI.show_terminal = function(cmd, title, command_id)
+function UI.show_terminal(cmd, title, command_id)
   History.track({
     id = command_id,
     cmd = cmd,
@@ -1269,7 +1269,7 @@ UI.show_terminal = function(cmd, title, command_id)
 end
 
 ---Show command history in floating window
-UI.show_history = function()
+function UI.show_history()
   local history = History.get_all()
   if #history == 0 then
     Utils.notify("No command history", "INFO")
@@ -1356,7 +1356,7 @@ UI.show_history = function()
 end
 
 ---Refresh UI to reflect changes
-UI.refresh = function()
+function UI.refresh()
   vim.schedule(function()
     vim.cmd("redraw!")
     vim.cmd("checktime")
@@ -1376,7 +1376,7 @@ local Executor = {}
 ---@param command_id integer Command ID
 ---@param on_done function Completion callback
 ---@param timeout? integer Timeout in milliseconds
-Executor.exec_async = function(cmd, command_id, on_done, timeout)
+function Executor.exec_async(cmd, command_id, on_done, timeout)
   timeout = timeout or State.config.timeout
   Utils.ensure_cwd()
 
@@ -1480,7 +1480,7 @@ end
 
 ---Cancel running command with graceful shutdown
 ---@param command_id integer Command ID
-Executor.cancel = function(command_id)
+function Executor.cancel(command_id)
   local entry = History.get(command_id)
   if not entry or not entry.job or entry.job:is_closing() then
     return false, "No running command to cancel"
@@ -1502,7 +1502,7 @@ end
 ---@param executable string Executable name
 ---@param args string[] Command arguments
 ---@return boolean Should force terminal
-Executor.should_force_terminal = function(executable, args)
+function Executor.should_force_terminal(executable, args)
   local patterns = State.config.force_terminal[executable]
   if not patterns or vim.tbl_isempty(patterns) then
     return false
@@ -1521,7 +1521,7 @@ end
 ---Run command in appropriate mode
 ---@param args string[] Command arguments
 ---@param force_terminal? boolean Force terminal execution
-Executor.run = function(args, force_terminal)
+function Executor.run(args, force_terminal)
   local executable = args[1]
 
   -- Validate executable
@@ -1621,7 +1621,7 @@ end
 local Commands = {}
 
 ---Setup all user commands
-Commands.setup = function()
+function Commands.setup()
   Commands.setup_main_command()
   Commands.setup_rerun_command()
   Commands.setup_cancel_command()
@@ -1630,7 +1630,7 @@ Commands.setup = function()
 end
 
 ---Setup main :Cmd command
-Commands.setup_main_command = function()
+function Commands.setup_main_command()
   vim.api.nvim_create_user_command("Cmd", function(opts)
     local args = vim.deepcopy(opts.fargs)
 
@@ -1656,7 +1656,7 @@ Commands.setup_main_command = function()
 end
 
 ---Setup :CmdRerun command
-Commands.setup_rerun_command = function()
+function Commands.setup_rerun_command()
   vim.api.nvim_create_user_command("CmdRerun", function(opts)
     local id = tonumber(opts.args) or #State.command_history
     local entry = History.get(id)
@@ -1675,7 +1675,7 @@ Commands.setup_rerun_command = function()
 end
 
 ---Setup :CmdCancel command
-Commands.setup_cancel_command = function()
+function Commands.setup_cancel_command()
   vim.api.nvim_create_user_command("CmdCancel", function(opts)
     if opts.bang then
       -- Cancel all running commands
@@ -1703,7 +1703,7 @@ Commands.setup_cancel_command = function()
 end
 
 ---Setup :CmdHistory command
-Commands.setup_history_command = function()
+function Commands.setup_history_command()
   vim.api.nvim_create_user_command("CmdHistory", function()
     UI.show_history()
   end, {
@@ -1712,7 +1712,7 @@ Commands.setup_history_command = function()
 end
 
 ---Setup auto-created user commands for configured executables
-Commands.setup_auto_commands = function()
+function Commands.setup_auto_commands()
   local existing_cmds = vim.api.nvim_get_commands({})
 
   for executable, cmd_name in pairs(State.config.create_usercmd or {}) do
