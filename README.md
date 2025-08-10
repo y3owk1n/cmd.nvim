@@ -7,7 +7,7 @@
 
 cmd.nvim transforms how you interact with command-line tools inside Neovim. Whether you're running git commands, build scripts, or system utilities, cmd.nvim provides a unified interface with beautiful progress indicators, shell completion, and intelligent output handling.
 
-<https://github.com/user-attachments/assets/ec286e66-816a-4a19-8814-ebd9ad7974a3>
+<https://github.com/user-attachments/assets/4afd6bca-4686-4c3c-90c9-495e1e161a3b>
 
 > [!NOTE]
 > Note that the notifier in the demo is my custom notifier, not a built in one.
