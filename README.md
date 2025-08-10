@@ -163,7 +163,7 @@ require("cmd").setup({
   },
 
   -- Progress notifications
-  async_notifier = {
+  progress_notifier = {
     spinner_chars = { "⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷" },
     adapter = require("cmd").builtins.spinner_adapters.snacks,
   },
@@ -198,7 +198,7 @@ cmd.nvim works seamlessly with popular notification plugins:
 ### [snacks.nvim](https://github.com/folke/snacks.nvim)
 
 ```lua
-async_notifier = {
+progress_notifier = {
   adapter = require("cmd").builtins.spinner_adapters.snacks,
 }
 ```
@@ -206,7 +206,7 @@ async_notifier = {
 ### [mini.notify](https://github.com/echasnovski/mini.notify)
 
 ```lua
-async_notifier = {
+progress_notifier = {
   adapter = require("cmd").builtins.spinner_adapters.mini,
 }
 ```
@@ -214,7 +214,7 @@ async_notifier = {
 ### [fidget.nvim](https://github.com/j-hui/fidget.nvim)
 
 ```lua
-async_notifier = {
+progress_notifier = {
   adapter = require("cmd").builtins.spinner_adapters.fidget,
 }
 ```
@@ -224,7 +224,7 @@ async_notifier = {
 You can also create your own adapter by the following sample:
 
 ```lua
-async_notifier = {
+progress_notifier = {
   adapter = {
     start = function(msg, data)
       return vim.notify(msg, vim.log.levels.INFO, { title = "cmd" })
@@ -242,7 +242,7 @@ async_notifier = {
 I am currently using my custom notifier, and here's how i do it:
 
 ```lua
-async_notifier = {
+progress_notifier = {
   adapter = {
     start = function(_, data)
       vim.notify("", vim.log.levels.INFO, {
@@ -570,7 +570,7 @@ This creates commands like `:Git status`, `:Docker ps`, `:K get pods`, etc.
 
 ### No notifications progress
 
-- Ensure that you have enabled `opts.async_notifier.adapter` in your config, if not it will just do one single `vim.notify` for start and end
+- Ensure that you have enabled `opts.progress_notifier.adapter` in your config, if not it will just do one single `vim.notify` for start and end
 - Ensure you have a compatible notification plugin installed
 - Check adapter configuration
 - Try the default adapter first
