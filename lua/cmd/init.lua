@@ -1,3 +1,5 @@
+---@module "cmd"
+
 ---@brief [[
 ---*cmd.nvim* Execute CLI commands in Neovim
 ---*Cmd*
@@ -36,9 +38,6 @@
 
 ---@mod cmd.setup Setup
 
----@tag Cmd.setup()
----@tag Cmd-setup
-
 ---@brief [[
 ---# Module setup ~
 ---
@@ -47,11 +46,11 @@
 ---   -- OR
 ---   require('cmd').setup({}) -- replace {} with your config table
 ---<
+---
+---see also |cmd.setup()| for more details
 ---@brief ]]
 
 ---@mod cmd.config Configuration
-
----@tag Cmd.config
 
 ---@brief [[
 ---# Module config ~
@@ -158,7 +157,6 @@
 ---@mod cmd.commands Commands
 
 ---@tag :Cmd
----@tag Cmd-:Cmd
 
 ---@brief [[
 ---# Execute a CLI command ~
@@ -173,7 +171,6 @@
 ---@brief ]]
 
 ---@tag :CmdRerun
----@tag Cmd-:CmdRerun
 
 ---@brief [[
 ---# Rerun a command from history ~
@@ -189,7 +186,6 @@
 ---@brief ]]
 
 ---@tag :CmdCancel
----@tag Cmd-:CmdCancel
 
 ---@brief [[
 ---# Cancel running commands ~
@@ -205,7 +201,6 @@
 ---@brief ]]
 
 ---@tag :CmdHistory
----@tag Cmd-:CmdHistory
 
 ---@brief [[
 ---# Show command history ~
@@ -246,8 +241,8 @@ local setup_complete = false
 
 ---@mod cmd.types Types
 
----@class Cmd.CommandHistory
 ---Represents a single command entry in the execution history.
+---@class Cmd.CommandHistory
 ---@field id integer Unique command identifier
 ---@field cmd? string[] Command arguments array
 ---@field timestamp? number Unix timestamp when command was executed
@@ -265,16 +260,16 @@ local setup_complete = false
 ---| '"cancelled"' # Command was cancelled by user
 ---| '"running"'   # Command is currently executing
 
----@class Cmd.Spinner
 ---Represents the state of a progress spinner for a running command.
+---@class Cmd.Spinner
 ---@field timer uv.uv_timer_t|nil Timer handle for spinner animation
 ---@field active boolean Whether spinner is currently active
 ---@field msg string Current spinner message text
 ---@field title string Spinner notification title
 ---@field cmd string Full command string being executed
 
----@class Cmd.State
 ---Internal state management for the plugin.
+---@class Cmd.State
 ---@field cwd string Current working directory for command execution
 ---@field temp_script_cache table<string, string> Cache of temporary completion scripts
 ---@field spinner_state table<integer, Cmd.Spinner> Active spinner states by command ID
@@ -300,51 +295,51 @@ local setup_complete = false
 ---@class Cmd.CommandHistoryFormatterOpts
 ---@field history Cmd.CommandHistory
 
----@class Cmd.SpinnerDriver
 ---Driver interface for managing spinner lifecycle during command execution.
+---@class Cmd.SpinnerDriver
 ---@field start fun(opts: Cmd.Config.ProgressNotifier.Start): string|integer|number|nil Function called before command execution
 ---@field stop fun(opts: Cmd.Config.ProgressNotifier.Finish) Function called after command completion
 
----@class Cmd.RunResult
 ---Result of a command execution, returned only for synchronous operations.
+---@class Cmd.RunResult
 ---@field code integer Exit code of the command (0 for success)
 ---@field out string Standard output content
 ---@field err string Standard error content
 
----@class Cmd.Config.Completion
 ---Configuration for shell completion functionality.
+---@class Cmd.Config.Completion
 ---@field enabled? boolean Whether to enable shell completion (default: false)
 ---@field shell? string Shell executable to use for completion (default: $SHELL or "/bin/sh")
 ---@field prompt_pattern_to_remove? string Regex pattern to remove from completion output
 
----@class Cmd.Config.ProgressNotifier.Start
 ---Context passed to spinner adapter before command execution.
+---@class Cmd.Config.ProgressNotifier.Start
 ---@field command_id integer Unique command identifier
 ---@field args_raw string[] Original command arguments array
 ---@field args string Concatenated command string
 ---@field current_spinner_char? string Currently displayed spinner character
 
----@class Cmd.Config.ProgressNotifier.Finish
 ---Context passed to spinner adapter after command execution.
+---@class Cmd.Config.ProgressNotifier.Finish
 ---@field command_id integer Unique command identifier
 ---@field args_raw string[] Original command arguments array
 ---@field args string Concatenated command string
 ---@field status Cmd.CommandStatus Final command execution status
 ---@field user_defined_notifier_id? string|integer|number|nil Adapter-specific notification ID
 
----@class Cmd.Config.ProgressNotifier
 ---Configuration for async command notifications and progress indicators.
+---@class Cmd.Config.ProgressNotifier
 ---@field spinner_chars? string[] Characters for spinner animation (default: braille patterns)
 ---@field adapter? Cmd.Config.ProgressNotifier.SpinnerAdapter Custom notification adapter
 
----@class Cmd.Config.ProgressNotifier.SpinnerAdapter
 ---Interface for custom notification adapters to handle progress display.
+---@class Cmd.Config.ProgressNotifier.SpinnerAdapter
 ---@field start fun(msg: string, data: Cmd.Config.ProgressNotifier.Start): string|integer|nil Initialize progress notification
 ---@field update fun(notify_id: string|integer|number|nil, msg: string, data: Cmd.Config.ProgressNotifier.Start) Update progress message
 ---@field finish fun(notify_id: string|integer|number|nil, msg: string, level: Cmd.LogLevel, data: Cmd.Config.ProgressNotifier.Finish) Show final result
 
----@class Cmd.Config
 ---Main configuration table for the Cmd plugin.
+---@class Cmd.Config
 ---@field force_terminal? table<string, string[]> Patterns that force terminal execution per executable
 ---@field create_usercmd? table<string, string> Auto-create user commands for executables
 ---@field env? table<string, string[]> Environment variables per executable
@@ -353,8 +348,8 @@ local setup_complete = false
 ---@field progress_notifier? Cmd.Config.ProgressNotifier Progress notification configuration
 ---@field history_formatter_fn? fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Formatter function for history display
 
----@class Cmd.Builtins
 ---Built-in utilities and adapters for extending plugin functionality.
+---@class Cmd.Builtins
 ---@field spinner_adapters table<"snacks"|"mini"|"fidget", Cmd.Config.ProgressNotifier.SpinnerAdapter> Pre-built notification adapters
 ---@field formatters Cmd.Builtins.Formatters Built-in formatters
 
@@ -1879,7 +1874,7 @@ end
 -- Default history formatter (set here to avoid circular dependency)
 DEFAULT_CONFIG.history_formatter_fn = History.default_formatter
 
----@tag Cmd.setup()
+---@tag cmd.setup()
 
 ---Set up the Cmd plugin with user configuration.
 ---
@@ -1931,8 +1926,6 @@ end
 -- ============================================================================
 -- PUBLIC BUILT-INS
 -- ============================================================================
-
----@tag Cmd.builtins
 
 ---Built-in utilities and notification adapters.
 ---
