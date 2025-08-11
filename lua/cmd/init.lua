@@ -1066,8 +1066,6 @@ function Completion.get_candidates(executable, lead_args, cmd_line, cursor_pos)
 
   Utils.ensure_cwd()
 
-  vim.notify(cmd_line)
-
   -- Handle root Cmd call
   if not executable then
     local cmd_line_table = vim.split(cmd_line, " ")
