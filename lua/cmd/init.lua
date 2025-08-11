@@ -1078,6 +1078,12 @@ function Completion.get_candidates(executable, lead_args, cmd_line, cursor_pos)
 
   local shell = State.config.completion.shell
 
+  --- validate shell whether it is executable
+  if vim.fn.executable(shell) == 0 then
+    Utils.notify(string.format("%s is not executable", shell), "ERROR")
+    return {}
+  end
+
   local script_path = Completion.write_temp_script(shell)
   if not script_path then
     Utils.notify("Failed to create completion script", "ERROR")
