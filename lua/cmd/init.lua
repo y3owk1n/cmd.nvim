@@ -1030,14 +1030,21 @@ complete -C "$input"
     content = [[
 #!/usr/bin/env zsh
 autoload -U compinit && compinit
-compdef _command_names cmd
-_cmd() { _command_names }
-compdef _cmd cmd
+autoload -U _command_names
+input="$1"
+_command_names "$input"
 ]]
   else -- bash
     content = [[
 #!/usr/bin/env bash
-complete -F _command_names cmd 2>/dev/null || complete -c cmd
+# Optional: source bash-completion for extended completions
+if [ -f /usr/share/bash-completion/bash_completion ]; then
+  . /usr/share/bash-completion/bash_completion
+elif [ -f /etc/bash_completion ]; then
+  . /etc/bash_completion
+fi
+input="$1"
+compgen -A command -- "$input"
 ]]
   end
 
