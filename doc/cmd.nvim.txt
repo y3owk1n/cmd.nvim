@@ -72,6 +72,7 @@ Default values:
     adapter = nil,
   },
   history_formatter_fn = U.default_history_formatter,
+  min_lines_to_output_buffer = 6
 }
 
 ## Force terminal execution ~
@@ -249,6 +250,7 @@ Cmd.State                                                 *cmd.public.Cmd.State*
     Internal state management for the plugin.
 
     Fields: ~
+        {config}             (Cmd.Config)                  User configuration
         {cwd}                (string)                      Current working directory for command execution
         {temp_script_cache}  (table<string,string>)        Cache of temporary completion scripts
         {spinner_state}      (table<integer,Cmd.Spinner>)  Active spinner states by command ID
@@ -360,13 +362,14 @@ Cmd.Config                                               *cmd.public.Cmd.Config*
     Main configuration table for the Cmd plugin.
 
     Fields: ~
-        {force_terminal?}        (table<string,string[]>)                                             Patterns that force terminal execution per executable
-        {create_usercmd?}        (table<string,string>)                                               Auto-create user commands for executables
-        {env?}                   (table<string,string[]>)                                             Environment variables per executable
-        {timeout?}               (integer)                                                            Default command timeout in milliseconds (default: 30000)
-        {completion?}            (Cmd.Config.Completion)                                              Shell completion configuration
-        {progress_notifier?}     (Cmd.Config.ProgressNotifier)                                        Progress notification configuration
-        {history_formatter_fn?}  (fun(opts:Cmd.CommandHistoryFormatterOpts):Cmd.FormattedLineOpts[])  Formatter function for history display
+        {force_terminal?}              (table<string,string[]>)                                             Patterns that force terminal execution per executable
+        {create_usercmd?}              (table<string,string>)                                               Auto-create user commands for executables
+        {env?}                         (table<string,string[]>)                                             Environment variables per executable
+        {timeout?}                     (integer)                                                            Default command timeout in milliseconds (default: 30000)
+        {completion?}                  (Cmd.Config.Completion)                                              Shell completion configuration
+        {progress_notifier?}           (Cmd.Config.ProgressNotifier)                                        Progress notification configuration
+        {history_formatter_fn?}        (fun(opts:Cmd.CommandHistoryFormatterOpts):Cmd.FormattedLineOpts[])  Formatter function for history display
+        {min_lines_to_output_buffer?}  (integer)                                                            Minimum lines that should output in buffer, else vim.notify (default: 6)
 
 
 Cmd.Builtins                                           *cmd.public.Cmd.Builtins*
