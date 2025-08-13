@@ -1108,7 +1108,7 @@ function Completion.get_candidates(executable, lead_args, cmd_line, cursor_pos)
   local shell = State.config.completion.shell
 
   --- validate shell whether it is executable
-  if vim.fn.executable(shell) == 0 then
+  if not shell or vim.fn.executable(shell) == 0 then
     Utils.notify(string.format("%s is not executable", shell), "ERROR")
     return {}
   end
@@ -1861,7 +1861,7 @@ function M.check()
 
   -- Check shell
   local shell = State.config.completion.shell
-  if vim.fn.executable(shell) == 1 then
+  if shell and vim.fn.executable(shell) == 1 then
     vim.health.ok("Shell executable: " .. shell)
   else
     vim.health.warn("Shell not executable: " .. shell)
