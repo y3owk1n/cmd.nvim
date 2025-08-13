@@ -353,7 +353,7 @@ local setup_complete = false
 
 ---Built-in utilities and adapters for extending plugin functionality.
 ---@class Cmd.Builtins
----@field spinner_adapters table<"snacks"|"mini"|"fidget", Cmd.Config.ProgressNotifier.SpinnerAdapter> Pre-built notification adapters
+---@field spinner_adapters table<"snacks"|"mini"|"fidget"|"notifier", Cmd.Config.ProgressNotifier.SpinnerAdapter> Pre-built notification adapters
 ---@field formatters Cmd.Builtins.Formatters Built-in formatters
 
 ---@class Cmd.Builtins.Formatters
@@ -1017,6 +1017,88 @@ Spinner.builtin_adapters = {
           ttl = 0,
         })
       end
+    end,
+  },
+  ---@type Cmd.Config.ProgressNotifier.SpinnerAdapter
+  notifier = {
+    start = function(_, ctx)
+      vim.notify("", vim.log.levels.INFO, {
+        id = string.format("cmd_progress_%s", ctx.command_id),
+        group_name = "bottom-left",
+        icon = " ",
+        _notif_formatter = function(opts)
+          local notif = opts.notif
+          local _notif_formatter_data = notif._notif_formatter_data
+
+          if not _notif_formatter_data then
+            return {}
+          end
+
+          local separator = { display_text = " " }
+
+          local icon = notif.icon or opts.config.icons[notif.level]
+          local icon_hl = notif.hl_group or opts.log_level_map[notif.level].hl_group
+
+          local id_text = string.format("#%s", _notif_formatter_data.command_id)
+
+          return {
+            icon and { display_text = icon, hl_group = icon_hl },
+            icon and separator,
+            { display_text = id_text, hl_group = "CmdHistoryIdentifier" },
+            separator,
+            { display_text = "running", hl_group = icon_hl },
+            separator,
+            { display_text = _notif_formatter_data.args, hl_group = "Comment" },
+          }
+        end,
+        _notif_formatter_data = ctx,
+      })
+      return nil -- snacks uses the id internally
+    end,
+
+    update = function(_, _, ctx)
+      vim.notify("", vim.log.levels.INFO, {
+        id = string.format("cmd_progress_%s", ctx.command_id),
+        group_name = "bottom-left",
+        icon = ctx.current_spinner_char,
+        _notif_formatter_data = ctx,
+      })
+    end,
+
+    finish = function(_, _, level, ctx)
+      local icon = icon_map[ctx.status]
+
+      vim.notify("", vim.log.levels[level], {
+        id = string.format("cmd_progress_%s", ctx.command_id),
+        group_name = "bottom-left",
+        icon = icon,
+        _notif_formatter = function(opts)
+          local notif = opts.notif
+          local _notif_formatter_data = notif._notif_formatter_data
+
+          if not _notif_formatter_data then
+            return {}
+          end
+
+          local separator = { display_text = " " }
+
+          local _icon = notif.icon or opts.config.icons[notif.level]
+          local icon_hl = notif.hl_group or opts.log_level_map[notif.level].hl_group
+
+          local id_text = string.format("#%s", _notif_formatter_data.command_id)
+
+          return {
+            icon and { display_text = _icon, hl_group = icon_hl },
+            icon and separator,
+            { display_text = id_text, hl_group = "CmdHistoryIdentifier" },
+            separator,
+            { display_text = _notif_formatter_data.status, hl_group = icon_hl },
+            separator,
+            { display_text = _notif_formatter_data.args, hl_group = "Comment" },
+          }
+        end,
+        _notif_formatter_data = ctx,
+      })
     end,
   },
 }
@@ -1872,6 +1954,7 @@ function M.check()
     { "snacks.nvim", "snacks" },
     { "mini.notify", "mini.notify" },
     { "fidget.nvim", "fidget" },
+    { "notifier.nvim", "notifier" },
   }
 
   for _, dep in ipairs(deps) do

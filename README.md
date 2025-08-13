@@ -19,8 +19,8 @@ cmd.nvim transforms how you interact with command-line tools inside Neovim. Whet
 ## ✨ Features
 
 - **🔄 Async Execution** - Run commands without blocking Neovim
-- **📊 Progress Notifications** - Beautiful spinners and progress indicators (snacks.nvim, mini.notify, fidget.nvim or
-  custom)
+- **📊 Progress Notifications** - Beautiful spinners and progress indicators (snacks.nvim, mini.notify, fidget.nvim,
+  notifier.nvim or custom adapters)
 - **🔍 Shell Completion** - Native shell completion for any command (your shell must support it, only for `fish` now,
   need help please!)
 - **📜 Command History** - Track and rerun previous commands
@@ -221,6 +221,14 @@ progress_notifier = {
 }
 ```
 
+### [notifier.nvim](https://github.com/y3owk1n/notifier.nvim)
+
+```lua
+progress_notifier = {
+  adapter = require("cmd").builtins.spinner_adapters.notifier,
+}
+```
+
 ### Custom Adapter
 
 You can also create your own adapter by the following sample:
@@ -229,7 +237,8 @@ You can also create your own adapter by the following sample:
 progress_notifier = {
   adapter = {
     start = function(msg, data)
-      return vim.notify(msg, vim.log.levels.INFO, { title = "cmd" })
+      vim.notify(msg, vim.log.levels.INFO, { title = "cmd" })
+      return id -- return ID to update later or it can be nil if your adapter supports ID based update
     end,
     update = function(id, msg, data)
       vim.notify(msg, vim.log.levels.INFO, { replace = id })
@@ -239,129 +248,6 @@ progress_notifier = {
     end,
   }
 }
-```
-
-I am currently using my custom notifier, and here's how i do it:
-
-```lua
-progress_notifier = {
-  adapter = {
-    start = function(_, data)
-      vim.notify("", vim.log.levels.INFO, {
-        id = string.format("cmd_progress_%s", data.command_id),
-        title = "cmd",
-        group_name = "bottom-left",
-        icon = " ",
-        _notif_formatter = function(opts)
-          local notif = opts.notif
-          local _notif_formatter_data = notif._notif_formatter_data
-
-          if not _notif_formatter_data then
-            return {}
-          end
-
-          local separator = { display_text = " " }
-
-          local icon = notif.icon or opts.config.icons[notif.level]
-          local icon_hl = notif.hl_group or opts.log_level_map[notif.level].hl_group
-
-          local id_text = string.format("#%s", _notif_formatter_data.command_id)
-
-          return {
-            icon and { display_text = icon, hl_group = icon_hl },
-            icon and separator,
-            { display_text = id_text, hl_group = "CmdHistoryIdentifier" },
-            separator,
-            { display_text = "running", hl_group = icon_hl },
-            separator,
-            { display_text = _notif_formatter_data.args, hl_group = "Comment" },
-          }
-        end,
-        _notif_formatter_data = data,
-      })
-      return nil -- no need to return ID, as my custom notifier updates by `opts.id`
-    end,
-
-    update = function(_, _, data)
-      vim.notify("", vim.log.levels.INFO, {
-        id = string.format("cmd_progress_%s", data.command_id),
-        title = "cmd",
-        group_name = "bottom-left",
-        icon = data.current_spinner_char,
-        _notif_formatter = function(opts)
-          local notif = opts.notif
-          local _notif_formatter_data = notif._notif_formatter_data
-
-          if not _notif_formatter_data then
-            return {}
-          end
-
-          local separator = { display_text = " " }
-
-          local icon = notif.icon or opts.config.icons[notif.level]
-          local icon_hl = notif.hl_group or opts.log_level_map[notif.level].hl_group
-
-          local id_text = string.format("#%s", _notif_formatter_data.command_id)
-
-          return {
-            icon and { display_text = icon, hl_group = icon_hl },
-            icon and separator,
-            { display_text = id_text, hl_group = "CmdHistoryIdentifier" },
-            separator,
-            { display_text = "running", hl_group = icon_hl },
-            separator,
-            { display_text = _notif_formatter_data.args, hl_group = "Comment" },
-          }
-        end,
-        _notif_formatter_data = data,
-      })
-    end,
-
-    finish = function(_, _, level, data)
-      ---@type table<Cmd.CommandStatus, string>
-      local icon_map = {
-        success = " ",
-        failed = " ",
-        cancelled = " ",
-      }
-
-      local icon = icon_map[data.status]
-
-      vim.notify("", vim.log.levels[level], {
-        id = string.format("cmd_progress_%s", data.command_id),
-        title = "cmd",
-        group_name = "bottom-left",
-        icon = icon,
-        _notif_formatter = function(opts)
-          local notif = opts.notif
-          local _notif_formatter_data = notif._notif_formatter_data
-
-          if not _notif_formatter_data then
-            return {}
-          end
-
-          local separator = { display_text = " " }
-
-          local _icon = notif.icon or opts.config.icons[notif.level]
-          local icon_hl = notif.hl_group or opts.log_level_map[notif.level].hl_group
-
-          local id_text = string.format("#%s", _notif_formatter_data.command_id)
-
-          return {
-            icon and { display_text = _icon, hl_group = icon_hl },
-            icon and separator,
-            { display_text = id_text, hl_group = "CmdHistoryIdentifier" },
-            separator,
-            { display_text = _notif_formatter_data.status, hl_group = icon_hl },
-            separator,
-            { display_text = _notif_formatter_data.args, hl_group = "Comment" },
-          }
-        end,
-        _notif_formatter_data = data,
-      })
-    end,
-  },
-},
 ```
 
 ## 📚 Usage
