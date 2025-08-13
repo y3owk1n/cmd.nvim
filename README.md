@@ -181,6 +181,8 @@ require("cmd").setup({
       },
     }
   end
+
+  min_lines_to_output_buffer = 6, -- Min lines that should output in buffer, else vim.notify.
 })
 ```
 
