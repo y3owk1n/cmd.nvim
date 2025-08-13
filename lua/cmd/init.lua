@@ -70,6 +70,7 @@
 ---    adapter = nil,
 ---  },
 ---  history_formatter_fn = U.default_history_formatter,
+---  min_lines_to_output_buffer = 6
 ---}
 ---
 ---## Force terminal execution ~
@@ -270,6 +271,7 @@ local setup_complete = false
 
 ---Internal state management for the plugin.
 ---@class Cmd.State
+---@field config Cmd.Config User configuration
 ---@field cwd string Current working directory for command execution
 ---@field temp_script_cache table<string, string> Cache of temporary completion scripts
 ---@field spinner_state table<integer, Cmd.Spinner> Active spinner states by command ID
@@ -347,6 +349,7 @@ local setup_complete = false
 ---@field completion? Cmd.Config.Completion Shell completion configuration
 ---@field progress_notifier? Cmd.Config.ProgressNotifier Progress notification configuration
 ---@field history_formatter_fn? fun(opts: Cmd.CommandHistoryFormatterOpts): Cmd.FormattedLineOpts[] Formatter function for history display
+---@field min_lines_to_output_buffer? integer Minimum lines that should output in buffer, else vim.notify (default: 6)
 
 ---Built-in utilities and adapters for extending plugin functionality.
 ---@class Cmd.Builtins
@@ -429,6 +432,7 @@ local DEFAULT_CONFIG = {
     adapter = nil,
   },
   history_formatter_fn = nil, -- Set below
+  min_lines_to_output_buffer = 6,
 }
 
 ---Validate configuration
@@ -465,6 +469,15 @@ local function validate_config(config)
         return false, string.format("progress_notifier.adapter.%s must be function", method)
       end
     end
+  end
+
+  -- Validate max_lines_to_output_buffer
+  if config.min_lines_to_output_buffer and type(config.min_lines_to_output_buffer) ~= "number" then
+    return false, "max_lines_to_output_buffer must be a number"
+  end
+
+  if config.min_lines_to_output_buffer <= 0 then
+    return false, "max_lines_to_output_buffer must be greater than 0"
   end
 
   return true, nil
@@ -706,6 +719,20 @@ function Utils.setup_virtual_text_hls(ns, bufnr, line_data)
       end
     end
   end
+end
+
+---Omit lines if longer than x lines or show x lines
+---@param lines string[] Output lines
+---@return string line_preview Preview of output
+function Utils.smart_output_lines(lines)
+  local min_lines = State.config.min_lines_to_output_buffer
+
+  local line_preview = #lines <= min_lines and table.concat(lines, "\n")
+    or table.concat(vim.list_slice(lines, 1, min_lines / 2), "\n")
+      .. "\n...omitted...\n"
+      .. table.concat(vim.list_slice(lines, #lines - ((min_lines / 2) - 1), #lines), "\n")
+
+  return line_preview
 end
 
 -- ============================================================================
@@ -1258,10 +1285,7 @@ function UI.show_terminal(cmd, title, command_id)
           local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
           lines = Utils.trim_empty_lines(lines)
 
-          local preview = #lines <= 6 and table.concat(lines, "\n")
-            or table.concat(vim.list_slice(lines, 1, 3), "\n")
-              .. "\n...omitted...\n"
-              .. table.concat(vim.list_slice(lines, #lines - 2, #lines), "\n")
+          local preview = Utils.smart_output_lines(lines)
 
           Utils.notify(string.format("`%s` exited %d\n%s", table.concat(cmd, " "), exit_code, preview), "ERROR")
 
@@ -1604,14 +1628,25 @@ function Executor.run(args, force_terminal)
           lines[i] = line:gsub("\27%[[0-9;]*m", "")
         end
 
-        if #lines > 0 then
-          UI.show_buffer(lines, "cmd://" .. table.concat(args, " ") .. "-" .. command_id)
-        else
-          Utils.notify("Command completed with no output", "INFO")
+        if status == "success" then
+          if #lines <= 0 then
+            Utils.notify("Command completed with no output", "INFO")
+          else
+            local preview = Utils.smart_output_lines(lines)
+            Utils.notify(string.format("`%s` success!\n%s", table.concat(args, " "), preview), "INFO")
+          end
+
+          UI.refresh()
         end
 
-        if status == "success" then
-          UI.refresh()
+        if status == "failed" then
+          if #lines <= 0 then
+            Utils.notify(string.format("`%s` failed, but no output provided.", table.concat(args, " ")), "ERROR")
+          elseif #lines <= 6 then
+            Utils.notify(string.format("`%s` failed!\n%s", table.concat(args, " "), table.concat(lines, "\n")), "ERROR")
+          else
+            UI.show_buffer(lines, "cmd://" .. table.concat(args, " ") .. "-" .. command_id)
+          end
         end
       end
     end)
