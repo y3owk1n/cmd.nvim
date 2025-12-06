@@ -274,8 +274,7 @@ Cmd.FormattedLineOpts                         *cmd.public.Cmd.FormattedLineOpts*
         {is_virtual?}   (boolean)  Whether the line is virtual
 
 
-                                               *cmd.public.Cmd.ComputedLineOpts*
-Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
+Cmd.ComputedLineOpts : Cmd.FormattedLineOpts   *cmd.public.Cmd.ComputedLineOpts*
 
     Fields: ~
         {col_start?}          (number)  The start column of the text, NOTE: this is calculated and for type purpose only
@@ -284,8 +283,7 @@ Cmd.ComputedLineOpts : Cmd.FormattedLineOpts
         {virtual_col_end?}    (number)  The end virtual column of the text, NOTE: this is calculated and for type purpose only
 
 
-                                    *cmd.public.Cmd.CommandHistoryFormatterOpts*
-Cmd.CommandHistoryFormatterOpts
+Cmd.CommandHistoryFormatterOpts     *cmd.public.Cmd.CommandHistoryFormatterOpts*
 
     Fields: ~
         {history}  (Cmd.CommandHistory)
@@ -317,8 +315,7 @@ Cmd.Config.Completion                         *cmd.public.Cmd.Config.Completion*
         {prompt_pattern_to_remove?}  (string)   Regex pattern to remove from completion output
 
 
-                                  *cmd.public.Cmd.Config.ProgressNotifier.Start*
-Cmd.Config.ProgressNotifier.Start
+Cmd.Config.ProgressNotifier.Start *cmd.public.Cmd.Config.ProgressNotifier.Start*
     Context passed to spinner adapter before command execution.
 
     Fields: ~
